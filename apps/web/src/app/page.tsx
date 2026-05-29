@@ -25,124 +25,19 @@ import {
 } from 'recharts';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { MetricCard } from '@/components/metric-card';
-
-const metrics = [
-  {
-    label: 'Atendimentos',
-    value: '186',
-    detail: '42 ainda abertos',
-    tone: 'neutral' as const,
-    icon: TicketCheck,
-  },
-  {
-    label: 'Tempo medio',
-    value: '6,4 min',
-    detail: 'Primeira resposta',
-    tone: 'good' as const,
-    icon: Clock3,
-  },
-  {
-    label: 'Nota media',
-    value: '4,3',
-    detail: 'Baseada nas avaliacoes',
-    tone: 'good' as const,
-    icon: Star,
-  },
-  {
-    label: 'Reclamacoes',
-    value: '9',
-    detail: 'Prioridade para qualidade',
-    tone: 'danger' as const,
-    icon: AlertTriangle,
-  },
-  {
-    label: 'Fallback do bot',
-    value: '12,8%',
-    detail: 'Conversas transferidas',
-    tone: 'warning' as const,
-    icon: MessageCircle,
-  },
-  {
-    label: 'Oportunidades',
-    value: '27',
-    detail: 'Sinais comerciais',
-    tone: 'neutral' as const,
-    icon: ShoppingCart,
-  },
-];
-
-const queueData = [
-  { name: 'Suporte', abertos: 18, espera: 7.2 },
-  { name: 'Comercial', abertos: 11, espera: 4.1 },
-  { name: 'Financeiro', abertos: 13, espera: 9.8 },
-  { name: 'Retencao', abertos: 7, espera: 5.6 },
-];
-
-const hourlyData = [
-  { hour: '08h', tickets: 12 },
-  { hour: '10h', tickets: 24 },
-  { hour: '12h', tickets: 31 },
-  { hour: '14h', tickets: 28 },
-  { hour: '16h', tickets: 36 },
-  { hour: '18h', tickets: 22 },
-];
-
-const conversations = [
-  {
-    id: 'ticket-1001',
-    customer: 'Marina Costa',
-    queue: 'Suporte',
-    agent: 'Ana Lima',
-    status: 'Aberto',
-    signal: 'Entrega',
-  },
-  {
-    id: 'ticket-1002',
-    customer: 'Joao Pereira',
-    queue: 'Financeiro',
-    agent: 'Carlos Souza',
-    status: 'Pendente',
-    signal: 'Nota baixa',
-  },
-  {
-    id: 'ticket-1003',
-    customer: 'Patricia Nunes',
-    queue: 'Comercial',
-    agent: 'Beatriz Rocha',
-    status: 'Fechado',
-    signal: 'Venda',
-  },
-];
-
-const qualitySummary = {
-  averageRating: 4.3,
-  totalRated: 128,
-  lowRated: 11,
-  unresolved: 14,
-  reopened: 6,
-  aiConfidence: 82,
-};
-
-const qualitySignals = [
-  {
-    label: 'Atendimentos ruins',
-    value: String(qualitySummary.lowRated),
-    detail: 'Notas 1 ou 2 estrelas',
-    tone: 'danger' as const,
-  },
-  {
-    label: 'Nao solucionados',
-    value: String(qualitySummary.unresolved),
-    detail: 'Fechados sem resolucao',
-    tone: 'warning' as const,
-  },
-  {
-    label: 'Reabertos',
-    value: String(qualitySummary.reopened),
-    detail: 'Voltaram em ate 48h',
-    tone: 'neutral' as const,
-  },
-];
+import {
+  agentPerformance,
+  conversations,
+  dashboardMetrics,
+  hourlyTicketVolume,
+  improvementSuggestions,
+  qualitySignals,
+  qualitySummary,
+  queueAttentionData,
+  recurringTopics,
+  resolutionFunnel,
+  type MetricIconKey,
+} from '@/lib/mock-dashboard';
 
 const qualitySignalStyles = {
   danger: 'border-rose-100 bg-rose-50',
@@ -150,12 +45,14 @@ const qualitySignalStyles = {
   neutral: 'border-zinc-100 bg-zinc-50',
 };
 
-const improvementSuggestions = [
-  'Revisar respostas do bot nos pedidos de segunda via e entrega atrasada.',
-  'Criar alerta para tickets com mais de 20 minutos sem resposta humana.',
-  'Priorizar auditoria da fila Financeiro, onde aparecem mais notas baixas.',
-  'Gerar resumo automatico da conversa antes da transferencia para atendente.',
-];
+const metricIcons = {
+  tickets: TicketCheck,
+  clock: Clock3,
+  star: Star,
+  alert: AlertTriangle,
+  message: MessageCircle,
+  sale: ShoppingCart,
+} satisfies Record<MetricIconKey, typeof TicketCheck>;
 
 function RatingStars({ rating }: { rating: number }) {
   return (
@@ -186,8 +83,8 @@ export default function Home() {
   return (
     <DashboardShell>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {metrics.map((metric) => (
-          <MetricCard key={metric.label} {...metric} />
+        {dashboardMetrics.map((metric) => (
+          <MetricCard key={metric.label} {...metric} icon={metricIcons[metric.icon]} />
         ))}
       </div>
 
@@ -202,7 +99,7 @@ export default function Home() {
           <div className="h-72 w-full">
             {chartsReady ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <LineChart data={hourlyData} margin={{ left: -18, right: 8, top: 8, bottom: 0 }}>
+                <LineChart data={hourlyTicketVolume} margin={{ left: -18, right: 8, top: 8, bottom: 0 }}>
                   <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
                   <XAxis dataKey="hour" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} />
@@ -224,7 +121,7 @@ export default function Home() {
           <div className="h-72 w-full">
             {chartsReady ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <BarChart data={queueData} layout="vertical" margin={{ left: 12, right: 8, top: 8, bottom: 0 }}>
+                <BarChart data={queueAttentionData} layout="vertical" margin={{ left: 12, right: 8, top: 8, bottom: 0 }}>
                   <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" horizontal={false} />
                   <XAxis type="number" tickLine={false} axisLine={false} />
                   <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={78} />
@@ -329,6 +226,77 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-3">
+        <section className="rounded-lg border border-border bg-white p-4 shadow-panel">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold tracking-normal text-zinc-950">Atendentes</h2>
+            <p className="text-sm text-zinc-500">Produtividade e resolucao</p>
+          </div>
+          <div className="space-y-3">
+            {agentPerformance.map((agent) => (
+              <div key={agent.name} className="rounded-md border border-border p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-zinc-950">{agent.name}</p>
+                    <p className="text-sm text-zinc-500">{agent.queue}</p>
+                  </div>
+                  <span className="rounded-md bg-emerald-50 px-2 py-1 text-sm font-semibold text-emerald-700">
+                    {agent.rating.toString().replace('.', ',')}
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center justify-between text-sm text-zinc-600">
+                  <span>{agent.tickets} tickets</span>
+                  <span>{agent.resolutionRate}% resolucao</span>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-zinc-100">
+                  <div className="h-2 rounded-full bg-teal-700" style={{ width: `${agent.resolutionRate}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-white p-4 shadow-panel">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold tracking-normal text-zinc-950">Assuntos recorrentes</h2>
+            <p className="text-sm text-zinc-500">Temas mais citados nas conversas</p>
+          </div>
+          <div className="space-y-3">
+            {recurringTopics.map((topic) => (
+              <div key={topic.label}>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium text-zinc-700">{topic.label}</span>
+                  <span className="text-zinc-500">{topic.count}</span>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-zinc-100">
+                  <div className="h-2 rounded-full bg-amber-600" style={{ width: `${topic.share}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-white p-4 shadow-panel">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold tracking-normal text-zinc-950">Funil de resolucao</h2>
+            <p className="text-sm text-zinc-500">Caminho dos atendimentos</p>
+          </div>
+          <div className="space-y-3">
+            {resolutionFunnel.map((step) => (
+              <div key={step.label} className="rounded-md bg-zinc-50 px-3 py-2">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium text-zinc-700">{step.label}</span>
+                  <span className="font-semibold text-zinc-950">{step.value}</span>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-white">
+                  <div className="h-2 rounded-full bg-zinc-800" style={{ width: `${step.share}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
 
       <section className="mt-5 rounded-lg border border-border bg-white shadow-panel">
         <div className="border-b border-border px-4 py-3">
