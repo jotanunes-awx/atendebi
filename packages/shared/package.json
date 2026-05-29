@@ -1,0 +1,15 @@
+{
+  "name": "@atendebi/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared AtendeBI types",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
