@@ -47,12 +47,16 @@ export const dashboardMetrics = [
   },
 ];
 
+export type DashboardMetric = (typeof dashboardMetrics)[number];
+
 export const queueAttentionData = [
   { name: 'Suporte', abertos: 18, espera: 7.2 },
   { name: 'Comercial', abertos: 11, espera: 4.1 },
   { name: 'Financeiro', abertos: 13, espera: 9.8 },
   { name: 'Retencao', abertos: 7, espera: 5.6 },
 ];
+
+export type QueueAttentionItem = (typeof queueAttentionData)[number];
 
 export const hourlyTicketVolume = [
   { hour: '08h', tickets: 12 },
@@ -63,6 +67,8 @@ export const hourlyTicketVolume = [
   { hour: '18h', tickets: 22 },
 ];
 
+export type HourlyTicketVolumeItem = (typeof hourlyTicketVolume)[number];
+
 export const qualitySummary = {
   averageRating: 4.3,
   totalRated: 128,
@@ -71,6 +77,8 @@ export const qualitySummary = {
   reopened: 6,
   aiConfidence: 82,
 };
+
+export type QualitySummary = typeof qualitySummary;
 
 export const qualitySignals = [
   {
@@ -92,6 +100,16 @@ export const qualitySignals = [
     tone: 'neutral' as const,
   },
 ];
+
+export type QualitySignal = (typeof qualitySignals)[number];
+
+export const operationalRisks = [
+  { label: 'Nota baixa sem contato posterior', value: 7, tone: 'danger' as const },
+  { label: 'Cliente pediu humano 3x', value: 9, tone: 'warning' as const },
+  { label: 'Conversa fechada sem tag', value: 18, tone: 'neutral' as const },
+];
+
+export type OperationalRisk = (typeof operationalRisks)[number];
 
 export const improvementSuggestions = [
   'Revisar respostas do bot nos pedidos de segunda via e entrega atrasada.',
@@ -124,6 +142,8 @@ export const agentPerformance = [
   },
 ];
 
+export type AgentPerformanceItem = (typeof agentPerformance)[number];
+
 export const recurringTopics = [
   { label: 'Entrega atrasada', count: 34, share: 28 },
   { label: 'Segunda via', count: 29, share: 24 },
@@ -132,6 +152,8 @@ export const recurringTopics = [
   { label: 'Negociacao comercial', count: 16, share: 13 },
 ];
 
+export type RecurringTopic = (typeof recurringTopics)[number];
+
 export const resolutionFunnel = [
   { label: 'Iniciados', value: 186, share: 100 },
   { label: 'Resolvidos no bot', value: 76, share: 41 },
@@ -139,6 +161,8 @@ export const resolutionFunnel = [
   { label: 'Resolvidos humano', value: 51, share: 27 },
   { label: 'Sem solucao', value: 14, share: 8 },
 ];
+
+export type ResolutionFunnelItem = (typeof resolutionFunnel)[number];
 
 export const conversations = [
   {
@@ -174,3 +198,41 @@ export const conversations = [
     signal: 'Risco',
   },
 ];
+
+export type ConversationSummary = (typeof conversations)[number];
+
+export type DashboardOverview = {
+  period: string;
+  periodLabel: string;
+  updatedAt: string;
+  source: 'api' | 'mock';
+  metrics: DashboardMetric[];
+  hourlyTicketVolume: HourlyTicketVolumeItem[];
+  queueAttentionData: QueueAttentionItem[];
+  qualitySummary: QualitySummary;
+  qualitySignals: QualitySignal[];
+  operationalRisks: OperationalRisk[];
+  improvementSuggestions: string[];
+  agentPerformance: AgentPerformanceItem[];
+  recurringTopics: RecurringTopic[];
+  resolutionFunnel: ResolutionFunnelItem[];
+  conversations: ConversationSummary[];
+};
+
+export const mockDashboardOverview: DashboardOverview = {
+  period: 'today',
+  periodLabel: 'Ultimas 24h',
+  updatedAt: '2026-05-29T23:45:00.000Z',
+  source: 'mock',
+  metrics: dashboardMetrics,
+  hourlyTicketVolume,
+  queueAttentionData,
+  qualitySummary,
+  qualitySignals,
+  operationalRisks,
+  improvementSuggestions,
+  agentPerformance,
+  recurringTopics,
+  resolutionFunnel,
+  conversations,
+};

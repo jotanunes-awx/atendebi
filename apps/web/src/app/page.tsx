@@ -1,5 +1,6 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
@@ -25,24 +26,19 @@ import {
 } from 'recharts';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { MetricCard } from '@/components/metric-card';
-import {
-  agentPerformance,
-  conversations,
-  dashboardMetrics,
-  hourlyTicketVolume,
-  improvementSuggestions,
-  qualitySignals,
-  qualitySummary,
-  queueAttentionData,
-  recurringTopics,
-  resolutionFunnel,
-  type MetricIconKey,
-} from '@/lib/mock-dashboard';
+import { getDashboardOverview } from '@/lib/api-client';
+import { mockDashboardOverview, type MetricIconKey } from '@/lib/mock-dashboard';
 
 const qualitySignalStyles = {
   danger: 'border-rose-100 bg-rose-50',
   warning: 'border-amber-100 bg-amber-50',
   neutral: 'border-zinc-100 bg-zinc-50',
+};
+
+const operationalRiskStyles = {
+  danger: 'bg-rose-50 text-rose-700',
+  warning: 'bg-amber-50 text-amber-700',
+  neutral: 'bg-zinc-50 text-zinc-700',
 };
 
 const metricIcons = {
@@ -75,15 +71,38 @@ function RatingStars({ rating }: { rating: number }) {
 
 export default function Home() {
   const [chartsReady, setChartsReady] = useState(false);
+  const dashboardQuery = useQuery({
+    queryKey: ['dashboard', 'overview'],
+    queryFn: getDashboardOverview,
+  });
 
   useEffect(() => {
     setChartsReady(true);
   }, []);
 
+  const dashboard = dashboardQuery.data ?? mockDashboardOverview;
+  const statusLabel = dashboardQuery.isLoading
+    ? 'Carregando API'
+    : dashboardQuery.isError
+      ? 'Usando fallback local'
+      : 'Conectado a API';
+
   return (
     <DashboardShell>
+      <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border bg-white px-4 py-3 shadow-panel sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-zinc-950">Dashboard conectado ao endpoint /dashboard/overview</p>
+          <p className="text-sm text-zinc-500">
+            Fonte atual: {statusLabel} · {dashboard.periodLabel}
+          </p>
+        </div>
+        <span className="w-fit rounded-md border border-teal-200 bg-teal-50 px-3 py-1 text-sm font-medium text-teal-800">
+          {dashboardQuery.isFetching ? 'Sincronizando' : 'Atualizado'}
+        </span>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {dashboardMetrics.map((metric) => (
+        {dashboard.metrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} icon={metricIcons[metric.icon]} />
         ))}
       </div>
@@ -99,7 +118,7 @@ export default function Home() {
           <div className="h-72 w-full">
             {chartsReady ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <LineChart data={hourlyTicketVolume} margin={{ left: -18, right: 8, top: 8, bottom: 0 }}>
+                <LineChart data={dashboard.hourlyTicketVolume} margin={{ left: -18, right: 8, top: 8, bottom: 0 }}>
                   <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
                   <XAxis dataKey="hour" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} />
@@ -121,7 +140,11 @@ export default function Home() {
           <div className="h-72 w-full">
             {chartsReady ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <BarChart data={queueAttentionData} layout="vertical" margin={{ left: 12, right: 8, top: 8, bottom: 0 }}>
+                <BarChart
+                  data={dashboard.queueAttentionData}
+                  layout="vertical"
+                  margin={{ left: 12, right: 8, top: 8, bottom: 0 }}
+                >
                   <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" horizontal={false} />
                   <XAxis type="number" tickLine={false} axisLine={false} />
                   <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={78} />
@@ -142,7 +165,9 @@ export default function Home() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="text-base font-semibold tracking-normal text-zinc-950">Qualidade por estrelas</h2>
-                <p className="text-sm text-zinc-600">{qualitySummary.totalRated} avaliacoes recebidas no periodo</p>
+                <p className="text-sm text-zinc-600">
+                  {dashboard.qualitySummary.totalRated} avaliacoes recebidas no periodo
+                </p>
               </div>
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-amber-200 bg-white">
                 <Star className="h-5 w-5 text-amber-500" fill="#f59e0b" aria-hidden="true" />
@@ -153,21 +178,21 @@ export default function Home() {
               <div>
                 <div className="flex items-baseline gap-2">
                   <span className="text-4xl font-semibold tracking-normal text-zinc-950">
-                    {String(qualitySummary.averageRating).replace('.', ',')}
+                    {String(dashboard.qualitySummary.averageRating).replace('.', ',')}
                   </span>
                   <span className="text-sm font-medium text-zinc-600">de 5</span>
                 </div>
                 <div className="mt-3">
-                  <RatingStars rating={qualitySummary.averageRating} />
+                  <RatingStars rating={dashboard.qualitySummary.averageRating} />
                 </div>
               </div>
               <div className="rounded-md border border-amber-200 bg-white px-3 py-2 text-sm text-zinc-700">
-                {qualitySummary.aiConfidence}% de confianca nos sinais analisados
+                {dashboard.qualitySummary.aiConfidence}% de confianca nos sinais analisados
               </div>
             </div>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              {qualitySignals.map((signal) => (
+              {dashboard.qualitySignals.map((signal) => (
                 <div key={signal.label} className={`rounded-md border p-3 ${qualitySignalStyles[signal.tone]}`}>
                   <p className="text-xs font-medium uppercase text-zinc-500">{signal.label}</p>
                   <p className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">{signal.value}</p>
@@ -187,18 +212,15 @@ export default function Home() {
                 <AlertTriangle className="h-5 w-5 text-rose-600" aria-hidden="true" />
               </div>
               <div className="mt-4 space-y-3">
-                <div className="flex items-center justify-between gap-3 rounded-md bg-rose-50 px-3 py-2">
-                  <span className="text-sm font-medium text-zinc-700">Nota baixa sem contato posterior</span>
-                  <span className="text-sm font-semibold text-rose-700">7</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-md bg-amber-50 px-3 py-2">
-                  <span className="text-sm font-medium text-zinc-700">Cliente pediu humano 3x</span>
-                  <span className="text-sm font-semibold text-amber-700">9</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-md bg-zinc-50 px-3 py-2">
-                  <span className="text-sm font-medium text-zinc-700">Conversa fechada sem tag</span>
-                  <span className="text-sm font-semibold text-zinc-700">18</span>
-                </div>
+                {dashboard.operationalRisks.map((risk) => (
+                  <div
+                    key={risk.label}
+                    className={`flex items-center justify-between gap-3 rounded-md px-3 py-2 ${operationalRiskStyles[risk.tone]}`}
+                  >
+                    <span className="text-sm font-medium text-zinc-700">{risk.label}</span>
+                    <span className="text-sm font-semibold">{risk.value}</span>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -211,7 +233,7 @@ export default function Home() {
                 <BrainCircuit className="h-5 w-5 text-teal-700" aria-hidden="true" />
               </div>
               <ul className="mt-4 space-y-3">
-                {improvementSuggestions.map((suggestion) => (
+                {dashboard.improvementSuggestions.map((suggestion) => (
                   <li key={suggestion} className="flex gap-3 rounded-md border border-teal-100 bg-white p-3">
                     <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" aria-hidden="true" />
                     <span className="text-sm text-zinc-700">{suggestion}</span>
@@ -234,7 +256,7 @@ export default function Home() {
             <p className="text-sm text-zinc-500">Produtividade e resolucao</p>
           </div>
           <div className="space-y-3">
-            {agentPerformance.map((agent) => (
+            {dashboard.agentPerformance.map((agent) => (
               <div key={agent.name} className="rounded-md border border-border p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -263,7 +285,7 @@ export default function Home() {
             <p className="text-sm text-zinc-500">Temas mais citados nas conversas</p>
           </div>
           <div className="space-y-3">
-            {recurringTopics.map((topic) => (
+            {dashboard.recurringTopics.map((topic) => (
               <div key={topic.label}>
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium text-zinc-700">{topic.label}</span>
@@ -283,7 +305,7 @@ export default function Home() {
             <p className="text-sm text-zinc-500">Caminho dos atendimentos</p>
           </div>
           <div className="space-y-3">
-            {resolutionFunnel.map((step) => (
+            {dashboard.resolutionFunnel.map((step) => (
               <div key={step.label} className="rounded-md bg-zinc-50 px-3 py-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium text-zinc-700">{step.label}</span>
@@ -316,7 +338,7 @@ export default function Home() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {conversations.map((conversation) => (
+              {dashboard.conversations.map((conversation) => (
                 <tr key={conversation.id} className="hover:bg-zinc-50">
                   <td className="px-4 py-3 font-medium text-zinc-950">{conversation.id}</td>
                   <td className="px-4 py-3 text-zinc-700">{conversation.customer}</td>
