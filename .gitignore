@@ -15,6 +15,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 *.tsbuildinfo
+apps/web/next-env.d.ts
 
 postgres-data/
 redis-data/
