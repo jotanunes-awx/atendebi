@@ -1,0 +1,377 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  INVITED
+}
+
+enum IntegrationProvider {
+  BLIP
+}
+
+enum RawEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+enum TicketStatus {
+  OPEN
+  PENDING
+  CLOSED
+  CANCELED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+  SYSTEM
+}
+
+enum AiAnalysisStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Tenant {
+  id                 String              @id @default(uuid()) @db.Uuid
+  name               String              @db.VarChar(160)
+  key                String              @unique @db.VarChar(80)
+  status             TenantStatus        @default(ACTIVE)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  users              User[]
+  userRoles          UserRole[]
+  roles              Role[]
+  integrationConfigs IntegrationConfig[]
+  rawEvents          RawEvent[]
+  contacts           Contact[]
+  tickets            Ticket[]
+  messages           Message[]
+  queues             SupportQueue[]
+  agents             Agent[]
+  ratings            Rating[]
+  tags               Tag[]
+  ticketTags         TicketTag[]
+  aiAnalysis         AiAnalysis[]
+  auditLogs          AuditLog[]
+
+  @@map("tenants")
+}
+
+model User {
+  id            String     @id @default(uuid()) @db.Uuid
+  tenantId      String     @map("tenant_id") @db.Uuid
+  entraObjectId String?    @map("entra_object_id") @db.VarChar(120)
+  email         String     @db.VarChar(180)
+  name          String     @db.VarChar(160)
+  status        UserStatus @default(ACTIVE)
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roles         UserRole[]
+  auditLogs     AuditLog[]
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, entraObjectId])
+  @@index([tenantId])
+  @@map("users")
+}
+
+model Role {
+  id          String     @id @default(uuid()) @db.Uuid
+  tenantId    String     @map("tenant_id") @db.Uuid
+  name        String     @db.VarChar(80)
+  description String?    @db.VarChar(240)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users       UserRole[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+model UserRole {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, roleId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model IntegrationConfig {
+  id          String              @id @default(uuid()) @db.Uuid
+  tenantId    String              @map("tenant_id") @db.Uuid
+  provider    IntegrationProvider @default(BLIP)
+  name        String              @db.VarChar(120)
+  tenantKey   String?             @map("tenant_key") @db.VarChar(120)
+  externalId  String?             @map("external_id") @db.VarChar(160)
+  secretRef   String?             @map("secret_ref") @db.VarChar(240)
+  settings    Json?
+  isActive    Boolean             @default(true) @map("is_active")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider, name])
+  @@index([tenantId])
+  @@map("integration_configs")
+}
+
+model RawEvent {
+  id               String              @id @default(uuid()) @db.Uuid
+  tenantId         String              @map("tenant_id") @db.Uuid
+  provider         IntegrationProvider @default(BLIP)
+  providerEventId  String?             @map("provider_event_id") @db.VarChar(180)
+  eventType        String?             @map("event_type") @db.VarChar(120)
+  payloadHash      String              @map("payload_hash") @db.VarChar(64)
+  payload          Json
+  processingStatus RawEventStatus      @default(PENDING) @map("processing_status")
+  receivedAt       DateTime            @default(now()) @map("received_at")
+  processedAt      DateTime?           @map("processed_at")
+  errorMessage     String?             @map("error_message") @db.Text
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messages         Message[]
+
+  @@unique([tenantId, provider, payloadHash])
+  @@unique([tenantId, provider, providerEventId])
+  @@index([tenantId, receivedAt])
+  @@index([processingStatus])
+  @@map("raw_events")
+}
+
+model Contact {
+  id         String       @id @default(uuid()) @db.Uuid
+  tenantId   String       @map("tenant_id") @db.Uuid
+  externalId String       @map("external_id") @db.VarChar(180)
+  name       String?      @db.VarChar(180)
+  phone      String?      @db.VarChar(40)
+  email      String?      @db.VarChar(180)
+  document   String?      @db.VarChar(80)
+  metadata   Json?
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  tenant     Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tickets    Ticket[]
+  messages   Message[]
+  aiAnalysis AiAnalysis[]
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId])
+  @@map("contacts")
+}
+
+model SupportQueue {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  externalId String?  @map("external_id") @db.VarChar(180)
+  name       String   @db.VarChar(160)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tickets    Ticket[]
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId])
+  @@map("queues")
+}
+
+model Agent {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  externalId String?   @map("external_id") @db.VarChar(180)
+  name       String    @db.VarChar(160)
+  email      String?   @db.VarChar(180)
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tickets    Ticket[]
+  messages   Message[]
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId])
+  @@map("agents")
+}
+
+model Ticket {
+  id              String       @id @default(uuid()) @db.Uuid
+  tenantId        String       @map("tenant_id") @db.Uuid
+  externalId      String?      @map("external_id") @db.VarChar(180)
+  contactId       String?      @map("contact_id") @db.Uuid
+  queueId         String?      @map("queue_id") @db.Uuid
+  agentId         String?      @map("agent_id") @db.Uuid
+  status          TicketStatus @default(OPEN)
+  channel         String?      @db.VarChar(80)
+  subject         String?      @db.VarChar(240)
+  openedAt        DateTime     @default(now()) @map("opened_at")
+  closedAt        DateTime?    @map("closed_at")
+  firstResponseAt DateTime?    @map("first_response_at")
+  metadata        Json?
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact         Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  queue           SupportQueue? @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  agent           Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  messages        Message[]
+  ratings         Rating[]
+  tags            TicketTag[]
+  aiAnalysis      AiAnalysis[]
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId, openedAt])
+  @@index([tenantId, status])
+  @@index([contactId])
+  @@index([queueId])
+  @@index([agentId])
+  @@map("tickets")
+}
+
+model Message {
+  id          String           @id @default(uuid()) @db.Uuid
+  tenantId    String           @map("tenant_id") @db.Uuid
+  ticketId    String?          @map("ticket_id") @db.Uuid
+  contactId   String?          @map("contact_id") @db.Uuid
+  agentId     String?          @map("agent_id") @db.Uuid
+  rawEventId  String?          @map("raw_event_id") @db.Uuid
+  externalId  String?          @map("external_id") @db.VarChar(180)
+  direction   MessageDirection
+  senderName  String?          @map("sender_name") @db.VarChar(160)
+  content     String?          @db.Text
+  contentType String?          @map("content_type") @db.VarChar(80)
+  sentAt      DateTime         @default(now()) @map("sent_at")
+  metadata    Json?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket      Ticket?          @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  contact     Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  agent       Agent?           @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  rawEvent    RawEvent?        @relation(fields: [rawEventId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId, sentAt])
+  @@index([ticketId])
+  @@index([contactId])
+  @@index([agentId])
+  @@index([rawEventId])
+  @@map("messages")
+}
+
+model Rating {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  ticketId  String   @map("ticket_id") @db.Uuid
+  score     Int
+  comment   String?  @db.Text
+  ratedAt   DateTime @default(now()) @map("rated_at")
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ratedAt])
+  @@index([ticketId])
+  @@map("ratings")
+}
+
+model Tag {
+  id        String      @id @default(uuid()) @db.Uuid
+  tenantId  String      @map("tenant_id") @db.Uuid
+  name      String      @db.VarChar(120)
+  color     String?     @db.VarChar(20)
+  createdAt DateTime    @default(now()) @map("created_at")
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tickets   TicketTag[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("tags")
+}
+
+model TicketTag {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  ticketId  String   @map("ticket_id") @db.Uuid
+  tagId     String   @map("tag_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, ticketId, tagId])
+  @@index([tenantId])
+  @@index([ticketId])
+  @@index([tagId])
+  @@map("ticket_tags")
+}
+
+model AiAnalysis {
+  id         String           @id @default(uuid()) @db.Uuid
+  tenantId   String           @map("tenant_id") @db.Uuid
+  ticketId   String?          @map("ticket_id") @db.Uuid
+  contactId  String?          @map("contact_id") @db.Uuid
+  status     AiAnalysisStatus @default(PENDING)
+  topics     Json?
+  sentiment  String?          @db.VarChar(80)
+  summary    String?          @db.Text
+  riskFlags  Json?            @map("risk_flags")
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket     Ticket?          @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  contact    Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([ticketId])
+  @@index([contactId])
+  @@map("ai_analysis")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(120)
+  entityType String   @map("entity_type") @db.VarChar(120)
+  entityId   String?  @map("entity_id") @db.VarChar(120)
+  metadata   Json?
+  ipAddress  String?  @map("ip_address") @db.VarChar(80)
+  userAgent  String?  @map("user_agent") @db.VarChar(300)
+  createdAt  DateTime @default(now()) @map("created_at")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([userId])
+  @@map("audit_logs")
+}
