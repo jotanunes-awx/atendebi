@@ -1,0 +1,27 @@
+{
+  "name": "atendebi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AtendeBI monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev -w @atendebi/api\" \"npm run dev -w @atendebi/web\"",
+    "build": "npm run build -ws",
+    "lint": "npm run lint -ws --if-present",
+    "typecheck": "npm run typecheck -ws --if-present",
+    "db:generate": "npm run db:generate -w @atendebi/api",
+    "db:migrate": "npm run db:migrate -w @atendebi/api",
+    "db:studio": "npm run db:studio -w @atendebi/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  }
+}
