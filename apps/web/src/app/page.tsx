@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  BrainCircuit,
+  CheckCircle2,
   Clock3,
+  Lightbulb,
   MessageCircle,
   ShoppingCart,
   Star,
@@ -111,6 +114,68 @@ const conversations = [
   },
 ];
 
+const qualitySummary = {
+  averageRating: 4.3,
+  totalRated: 128,
+  lowRated: 11,
+  unresolved: 14,
+  reopened: 6,
+  aiConfidence: 82,
+};
+
+const qualitySignals = [
+  {
+    label: 'Atendimentos ruins',
+    value: String(qualitySummary.lowRated),
+    detail: 'Notas 1 ou 2 estrelas',
+    tone: 'danger' as const,
+  },
+  {
+    label: 'Nao solucionados',
+    value: String(qualitySummary.unresolved),
+    detail: 'Fechados sem resolucao',
+    tone: 'warning' as const,
+  },
+  {
+    label: 'Reabertos',
+    value: String(qualitySummary.reopened),
+    detail: 'Voltaram em ate 48h',
+    tone: 'neutral' as const,
+  },
+];
+
+const qualitySignalStyles = {
+  danger: 'border-rose-100 bg-rose-50',
+  warning: 'border-amber-100 bg-amber-50',
+  neutral: 'border-zinc-100 bg-zinc-50',
+};
+
+const improvementSuggestions = [
+  'Revisar respostas do bot nos pedidos de segunda via e entrega atrasada.',
+  'Criar alerta para tickets com mais de 20 minutos sem resposta humana.',
+  'Priorizar auditoria da fila Financeiro, onde aparecem mais notas baixas.',
+  'Gerar resumo automatico da conversa antes da transferencia para atendente.',
+];
+
+function RatingStars({ rating }: { rating: number }) {
+  return (
+    <div className="flex items-center gap-1" aria-label={`Nota media ${rating} de 5`}>
+      {Array.from({ length: 5 }).map((_, index) => {
+        const filled = index < Math.round(rating);
+
+        return (
+          <Star
+            key={index}
+            className="h-6 w-6 text-amber-500"
+            fill={filled ? '#f59e0b' : 'none'}
+            aria-hidden="true"
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Home() {
   const [chartsReady, setChartsReady] = useState(false);
 
@@ -175,9 +240,100 @@ export default function Home() {
       </div>
 
       <section className="mt-5 rounded-lg border border-border bg-white shadow-panel">
+        <div className="grid gap-5 p-4 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold tracking-normal text-zinc-950">Qualidade por estrelas</h2>
+                <p className="text-sm text-zinc-600">{qualitySummary.totalRated} avaliacoes recebidas no periodo</p>
+              </div>
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-amber-200 bg-white">
+                <Star className="h-5 w-5 text-amber-500" fill="#f59e0b" aria-hidden="true" />
+              </span>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-semibold tracking-normal text-zinc-950">
+                    {String(qualitySummary.averageRating).replace('.', ',')}
+                  </span>
+                  <span className="text-sm font-medium text-zinc-600">de 5</span>
+                </div>
+                <div className="mt-3">
+                  <RatingStars rating={qualitySummary.averageRating} />
+                </div>
+              </div>
+              <div className="rounded-md border border-amber-200 bg-white px-3 py-2 text-sm text-zinc-700">
+                {qualitySummary.aiConfidence}% de confianca nos sinais analisados
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              {qualitySignals.map((signal) => (
+                <div key={signal.label} className={`rounded-md border p-3 ${qualitySignalStyles[signal.tone]}`}>
+                  <p className="text-xs font-medium uppercase text-zinc-500">{signal.label}</p>
+                  <p className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">{signal.value}</p>
+                  <p className="mt-1 text-xs text-zinc-500">{signal.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="rounded-lg border border-border p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold tracking-normal text-zinc-950">Risco operacional</h2>
+                  <p className="text-sm text-zinc-500">Casos que merecem revisao</p>
+                </div>
+                <AlertTriangle className="h-5 w-5 text-rose-600" aria-hidden="true" />
+              </div>
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center justify-between gap-3 rounded-md bg-rose-50 px-3 py-2">
+                  <span className="text-sm font-medium text-zinc-700">Nota baixa sem contato posterior</span>
+                  <span className="text-sm font-semibold text-rose-700">7</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-md bg-amber-50 px-3 py-2">
+                  <span className="text-sm font-medium text-zinc-700">Cliente pediu humano 3x</span>
+                  <span className="text-sm font-semibold text-amber-700">9</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-md bg-zinc-50 px-3 py-2">
+                  <span className="text-sm font-medium text-zinc-700">Conversa fechada sem tag</span>
+                  <span className="text-sm font-semibold text-zinc-700">18</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold tracking-normal text-zinc-950">Melhorias sugeridas por IA</h2>
+                  <p className="text-sm text-zinc-600">Fila de ideias para auditoria e gestao</p>
+                </div>
+                <BrainCircuit className="h-5 w-5 text-teal-700" aria-hidden="true" />
+              </div>
+              <ul className="mt-4 space-y-3">
+                {improvementSuggestions.map((suggestion) => (
+                  <li key={suggestion} className="flex gap-3 rounded-md border border-teal-100 bg-white p-3">
+                    <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" aria-hidden="true" />
+                    <span className="text-sm text-zinc-700">{suggestion}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-4 flex items-center gap-2 text-sm font-medium text-teal-800">
+                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                Sugestoes prontas para validacao da qualidade
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-lg border border-border bg-white shadow-panel">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-base font-semibold tracking-normal text-zinc-950">Conversas recentes</h2>
-          <p className="text-sm text-zinc-500">Amostra mockada para validar o layout inicial</p>
+          <p className="text-sm text-zinc-500">Ultimos atendimentos com sinais operacionais</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse text-left text-sm">
