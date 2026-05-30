@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BrainCircuit,
@@ -25,35 +25,44 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { DashboardShell } from '@/components/dashboard-shell';
+import { ConversationTimeline } from '@/components/conversation-timeline';
+import { DrilldownDrawer } from '@/components/drilldown-drawer';
 import { MetricCard } from '@/components/metric-card';
-import { getConversationMessages, getDashboardOverview, getTickets } from '@/lib/api-client';
-import { mockConversationMessages, mockConversationTickets } from '@/lib/mock-conversation-history';
+import { RiskBadge } from '@/components/risk-badge';
+import { SentimentBadge } from '@/components/sentiment-badge';
+import { StatusBadge } from '@/components/status-badge';
+import { ticketColumns, getTicketSearchValue, formatDateTime } from '@/components/ticket-columns';
+import { DashboardShell } from '@/components/dashboard-shell';
+import { getDashboardOverview } from '@/lib/api-client';
+import {
+  demoAgentMetrics,
+  demoOperationalRisks,
+  demoTickets,
+  getDashboardTickets,
+  getDemoMessages,
+  getTicketsByAgent,
+  getTicketsByHour,
+  getTicketsByQueue,
+  type DemoTicket,
+} from '@/lib/demo-data';
 import { mockDashboardOverview, type MetricIconKey } from '@/lib/mock-dashboard';
 import { useTheme } from '@/lib/theme';
 
-const qualitySignalStyles = {
-  danger: 'border-destructive/20 bg-destructive/10',
-  warning: 'border-warning/20 bg-warning/10',
-  neutral: 'border-border bg-secondary',
+type ChartClickState = {
+  activeLabel?: string | number;
+  activePayload?: Array<{
+    payload?: {
+      name?: string;
+      hour?: string;
+    };
+  }>;
 };
 
-const operationalRiskStyles = {
-  danger: 'bg-destructive/10 text-destructive',
-  warning: 'bg-warning/10 text-warning',
-  neutral: 'bg-secondary text-muted-foreground',
-};
-
-const ticketStatusStyles = {
-  OPEN: 'border-primary/30 bg-primary/10 text-primary',
-  PENDING: 'border-warning/30 bg-warning/10 text-warning',
-  CLOSED: 'border-border bg-secondary text-muted-foreground',
-};
-
-const messageDirectionStyles = {
-  INBOUND: 'mr-auto border-border bg-card text-foreground',
-  OUTBOUND: 'ml-auto border-primary/30 bg-primary/10 text-foreground',
-  SYSTEM: 'mx-auto border-border bg-secondary text-muted-foreground',
+type DrawerState = {
+  title: string;
+  description: string;
+  filters: Array<{ label: string; value: string }>;
+  rows: DemoTicket[];
 };
 
 const metricIcons = {
@@ -84,32 +93,23 @@ function RatingStars({ rating }: { rating: number }) {
   );
 }
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+function ticketDescription(rows: DemoTicket[]) {
+  const open = rows.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING').length;
+  const highRisk = rows.filter((ticket) => ticket.risk === 'alto').length;
+
+  return `${rows.length} registros na amostra demo, ${open} ainda abertos/pendentes e ${highRisk} com risco alto.`;
 }
 
 export default function Home() {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   const [chartsReady, setChartsReady] = useState(false);
-  const [selectedTicketId, setSelectedTicketId] = useState('ticket-1001');
+  const [drawer, setDrawer] = useState<DrawerState | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState(demoTickets[0]?.id ?? '');
+
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'overview'],
     queryFn: getDashboardOverview,
-  });
-  const ticketsQuery = useQuery({
-    queryKey: ['tickets', 'history'],
-    queryFn: getTickets,
-  });
-  const messagesQuery = useQuery({
-    queryKey: ['conversations', selectedTicketId, 'messages'],
-    queryFn: () => getConversationMessages(selectedTicketId),
-    enabled: Boolean(selectedTicketId),
   });
 
   useEffect(() => {
@@ -117,33 +117,55 @@ export default function Home() {
   }, []);
 
   const dashboard = dashboardQuery.data ?? mockDashboardOverview;
-  const tickets = ticketsQuery.data?.data ?? mockConversationTickets;
-  const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0];
-  const conversation = messagesQuery.data ?? mockConversationMessages[selectedTicket?.id ?? selectedTicketId];
+  const selectedTicket = useMemo(
+    () => demoTickets.find((ticket) => ticket.id === selectedTicketId) ?? demoTickets[0],
+    [selectedTicketId],
+  );
+  const selectedMessages = selectedTicket ? getDemoMessages(selectedTicket) : [];
   const statusLabel = dashboardQuery.isLoading
     ? 'Carregando API'
     : dashboardQuery.isError
       ? 'Usando fallback local'
       : 'Conectado a API';
 
+  function openDrawer(title: string, rows: DemoTicket[], filters: DrawerState['filters'], description?: string) {
+    setDrawer({
+      title,
+      description: description ?? ticketDescription(rows),
+      filters,
+      rows,
+    });
+  }
+
   return (
     <DashboardShell>
       <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border bg-card px-4 py-3 shadow-panel sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-card-foreground">Dashboard conectado ao endpoint /dashboard/overview</p>
+          <p className="text-sm font-medium text-card-foreground">Dashboard com drill-down operacional</p>
           <p className="text-sm text-muted-foreground">
-            Fonte atual: {statusLabel} · {dashboard.periodLabel}
+            Fonte atual: {statusLabel} · {dashboard.periodLabel} · clique nos indicadores para ver os tickets.
           </p>
         </div>
         <span className="w-fit rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
-          {dashboardQuery.isFetching ? 'Sincronizando' : 'Atualizado'}
+          {dashboardQuery.isFetching ? 'Sincronizando' : 'Interativo'}
         </span>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {dashboard.metrics.map((metric) => (
-          <MetricCard key={metric.label} {...metric} icon={metricIcons[metric.icon]} />
-        ))}
+        {dashboard.metrics.map((metric) => {
+          const rows = getDashboardTickets(metric.label);
+
+          return (
+            <MetricCard
+              key={metric.label}
+              {...metric}
+              icon={metricIcons[metric.icon]}
+              onClick={() =>
+                openDrawer(metric.label, rows, [{ label: 'Indicador', value: metric.label }], ticketDescription(rows))
+              }
+            />
+          );
+        })}
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
@@ -151,28 +173,26 @@ export default function Home() {
           <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-base font-semibold tracking-normal text-card-foreground">Volume por hora</h2>
-              <p className="text-sm text-muted-foreground">Atendimentos iniciados no dia</p>
+              <p className="text-sm text-muted-foreground">Clique em um ponto para ver os tickets daquele horario</p>
             </div>
           </div>
-          <div className="h-72 w-full">
+          <div className="h-72 w-full cursor-pointer">
             {chartsReady ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <LineChart data={dashboard.hourlyTicketVolume} margin={{ left: -18, right: 8, top: 8, bottom: 0 }}>
-                  <CartesianGrid
-                    stroke={isDark ? 'rgba(148, 163, 184, 0.25)' : '#e4e4e7'}
-                    strokeDasharray="3 3"
-                  />
-                  <XAxis
-                    dataKey="hour"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: isDark ? '#cbd5e1' : '#475569' }}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: isDark ? '#cbd5e1' : '#475569' }}
-                  />
+              <ResponsiveContainer width="100%" height={288} minWidth={0}>
+                <LineChart
+                  data={dashboard.hourlyTicketVolume}
+                  margin={{ left: -18, right: 8, top: 8, bottom: 0 }}
+                  onClick={(state: ChartClickState) => {
+                    if (state.activeLabel) {
+                      const hourLabel = String(state.activeLabel);
+                      const rows = getTicketsByHour(hourLabel);
+                      openDrawer(`Volume ${hourLabel}`, rows, [{ label: 'Hora', value: hourLabel }]);
+                    }
+                  }}
+                >
+                  <CartesianGrid stroke={isDark ? 'rgba(148, 163, 184, 0.25)' : '#e4e4e7'} strokeDasharray="3 3" />
+                  <XAxis dataKey="hour" tickLine={false} axisLine={false} tick={{ fill: isDark ? '#cbd5e1' : '#475569' }} />
+                  <YAxis tickLine={false} axisLine={false} tick={{ fill: isDark ? '#cbd5e1' : '#475569' }} />
                   <Tooltip
                     wrapperStyle={{ outline: 'none' }}
                     contentStyle={{
@@ -187,7 +207,8 @@ export default function Home() {
                     dataKey="tickets"
                     stroke={isDark ? '#5eead4' : '#0f766e'}
                     strokeWidth={3}
-                    dot={{ r: 3, fill: isDark ? '#2dd4bf' : '#0f766e' }}
+                    activeDot={{ r: 7 }}
+                    dot={{ r: 4, fill: isDark ? '#2dd4bf' : '#0f766e' }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -200,35 +221,27 @@ export default function Home() {
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4">
             <h2 className="text-base font-semibold tracking-normal text-card-foreground">Filas em atencao</h2>
-            <p className="text-sm text-muted-foreground">Abertos e espera media</p>
+            <p className="text-sm text-muted-foreground">Clique em uma barra para abrir a fila</p>
           </div>
-          <div className="h-72 w-full">
+          <div className="h-72 w-full cursor-pointer">
             {chartsReady ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <ResponsiveContainer width="100%" height={288} minWidth={0}>
                 <BarChart
                   data={dashboard.queueAttentionData}
                   layout="vertical"
                   margin={{ left: 12, right: 8, top: 8, bottom: 0 }}
+                  onClick={(state: ChartClickState) => {
+                    const queue = state.activePayload?.[0]?.payload?.name;
+
+                    if (queue) {
+                      const rows = getTicketsByQueue(queue);
+                      openDrawer(`Fila ${queue}`, rows, [{ label: 'Fila', value: queue }]);
+                    }
+                  }}
                 >
-                  <CartesianGrid
-                    stroke={isDark ? 'rgba(148, 163, 184, 0.25)' : '#e4e4e7'}
-                    strokeDasharray="3 3"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: isDark ? '#cbd5e1' : '#475569' }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    tickLine={false}
-                    axisLine={false}
-                    width={78}
-                    tick={{ fill: isDark ? '#cbd5e1' : '#475569' }}
-                  />
+                  <CartesianGrid stroke={isDark ? 'rgba(148, 163, 184, 0.25)' : '#e4e4e7'} strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tickLine={false} axisLine={false} tick={{ fill: isDark ? '#cbd5e1' : '#475569' }} />
+                  <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={78} tick={{ fill: isDark ? '#cbd5e1' : '#475569' }} />
                   <Tooltip
                     wrapperStyle={{ outline: 'none' }}
                     contentStyle={{
@@ -238,7 +251,7 @@ export default function Home() {
                     }}
                     labelStyle={{ color: isDark ? '#94a3b8' : '#475569' }}
                   />
-                  <Bar dataKey="abertos" fill={isDark ? '#5eead4' : '#b45309'} radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="abertos" fill={isDark ? '#5eead4' : '#0f766e'} radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -250,7 +263,15 @@ export default function Home() {
 
       <section className="mt-5 rounded-lg border border-border bg-card shadow-panel">
         <div className="grid gap-5 p-4 xl:grid-cols-[0.95fr_1.05fr]">
-          <div className="rounded-lg border border-warning/30 bg-warning/10 p-4">
+          <button
+            type="button"
+            className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-left transition-colors hover:border-warning/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() =>
+              openDrawer('Notas e qualidade', demoTickets.filter((ticket) => ticket.rating <= 2), [
+                { label: 'Nota', value: '1 ou 2 estrelas' },
+              ])
+            }
+          >
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="text-base font-semibold tracking-normal text-card-foreground">Qualidade por estrelas</h2>
@@ -276,20 +297,10 @@ export default function Home() {
                 </div>
               </div>
               <div className="rounded-md border border-warning/30 bg-card px-3 py-2 text-sm text-muted-foreground">
-                {dashboard.qualitySummary.aiConfidence}% de confianca nos sinais analisados
+                Clique para ver atendimentos ruins ou nao solucionados
               </div>
             </div>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              {dashboard.qualitySignals.map((signal) => (
-                <div key={signal.label} className={`rounded-md border p-3 ${qualitySignalStyles[signal.tone]}`}>
-                  <p className="text-xs font-medium uppercase text-muted-foreground">{signal.label}</p>
-                  <p className="mt-2 text-2xl font-semibold tracking-normal text-card-foreground">{signal.value}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{signal.detail}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          </button>
 
           <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
             <div className="rounded-lg border border-border p-4">
@@ -301,14 +312,16 @@ export default function Home() {
                 <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden="true" />
               </div>
               <div className="mt-4 space-y-3">
-                {dashboard.operationalRisks.map((risk) => (
-                  <div
+                {demoOperationalRisks.map((risk) => (
+                  <button
                     key={risk.label}
-                    className={`flex items-center justify-between gap-3 rounded-md px-3 py-2 ${operationalRiskStyles[risk.tone]}`}
+                    type="button"
+                    className="flex w-full items-center justify-between gap-3 rounded-md bg-secondary px-3 py-2 text-left transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => openDrawer(risk.label, risk.tickets, [{ label: 'Risco', value: risk.label }])}
                   >
                     <span className="text-sm font-medium text-muted-foreground">{risk.label}</span>
-                    <span className="text-sm font-semibold">{risk.value}</span>
-                  </div>
+                    <span className="text-sm font-semibold text-card-foreground">{risk.count}</span>
+                  </button>
                 ))}
               </div>
             </div>
@@ -317,18 +330,34 @@ export default function Home() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold tracking-normal text-card-foreground">Melhorias sugeridas por IA</h2>
-                  <p className="text-sm text-muted-foreground">Fila de ideias para auditoria e gestao</p>
+                  <p className="text-sm text-muted-foreground">Clique nas ideias para ver a base de conversas</p>
                 </div>
                 <BrainCircuit className="h-5 w-5 text-primary" aria-hidden="true" />
               </div>
-              <ul className="mt-4 space-y-3">
-                {dashboard.improvementSuggestions.map((suggestion) => (
-                  <li key={suggestion} className="flex gap-3 rounded-md border border-primary/20 bg-card p-3">
+              <div className="mt-4 space-y-3">
+                {dashboard.improvementSuggestions.map((suggestion, index) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    className="flex w-full gap-3 rounded-md border border-primary/20 bg-card p-3 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() =>
+                      openDrawer(
+                        `Base da sugestao ${index + 1}`,
+                        index === 0
+                          ? demoTickets.filter((ticket) => ticket.botFallback || ticket.tags.includes('entrega'))
+                          : index === 1
+                            ? demoTickets.filter((ticket) => ticket.waitMinutes >= 8)
+                            : demoTickets.filter((ticket) => ticket.risk !== 'baixo'),
+                        [{ label: 'Insight', value: `Sugestao ${index + 1}` }],
+                        suggestion,
+                      )
+                    }
+                  >
                     <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                     <span className="text-sm text-muted-foreground">{suggestion}</span>
-                  </li>
+                  </button>
                 ))}
-              </ul>
+              </div>
               <div className="mt-4 flex items-center gap-2 text-sm font-medium text-primary">
                 <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                 Sugestoes prontas para validacao da qualidade
@@ -342,28 +371,33 @@ export default function Home() {
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4">
             <h2 className="text-base font-semibold tracking-normal text-card-foreground">Atendentes</h2>
-            <p className="text-sm text-muted-foreground">Produtividade e resolucao</p>
+            <p className="text-sm text-muted-foreground">Clique no atendente para ver carteira atual</p>
           </div>
           <div className="space-y-3">
-            {dashboard.agentPerformance.map((agent) => (
-              <div key={agent.name} className="rounded-md border border-border p-3">
+            {demoAgentMetrics.slice(0, 3).map((agent) => (
+              <button
+                key={agent.name}
+                type="button"
+                className="w-full rounded-md border border-border p-3 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => openDrawer(agent.name, getTicketsByAgent(agent.name), [{ label: 'Atendente', value: agent.name }])}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-medium text-card-foreground">{agent.name}</p>
                     <p className="text-sm text-muted-foreground">{agent.queue}</p>
                   </div>
                   <span className="rounded-md bg-success/10 px-2 py-1 text-sm font-semibold text-success">
-                    {agent.rating.toString().replace('.', ',')}
+                    {agent.averageRating.toString().replace('.', ',')}
                   </span>
                 </div>
                 <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-                  <span>{agent.tickets} tickets</span>
+                  <span>{agent.openTickets} abertos</span>
                   <span>{agent.resolutionRate}% resolucao</span>
                 </div>
                 <div className="mt-2 h-2 rounded-full bg-muted">
                   <div className="h-2 rounded-full bg-primary" style={{ width: `${agent.resolutionRate}%` }} />
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </section>
@@ -371,11 +405,22 @@ export default function Home() {
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4">
             <h2 className="text-base font-semibold tracking-normal text-card-foreground">Assuntos recorrentes</h2>
-            <p className="text-sm text-muted-foreground">Temas mais citados nas conversas</p>
+            <p className="text-sm text-muted-foreground">Clique no tema para abrir conversas relacionadas</p>
           </div>
           <div className="space-y-3">
             {dashboard.recurringTopics.map((topic) => (
-              <div key={topic.label}>
+              <button
+                key={topic.label}
+                type="button"
+                className="w-full rounded-md px-2 py-1 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() =>
+                  openDrawer(
+                    topic.label,
+                    demoTickets.filter((ticket) => ticket.subject.toLowerCase().includes(topic.label.split(' ')[0].toLowerCase()) || ticket.tags.join(' ').toLowerCase().includes(topic.label.split(' ')[0].toLowerCase())),
+                    [{ label: 'Assunto', value: topic.label }],
+                  )
+                }
+              >
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="font-medium text-muted-foreground">{topic.label}</span>
                   <span className="text-muted-foreground">{topic.count}</span>
@@ -383,7 +428,7 @@ export default function Home() {
                 <div className="mt-2 h-2 rounded-full bg-muted">
                   <div className="h-2 rounded-full bg-warning" style={{ width: `${topic.share}%` }} />
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </section>
@@ -391,20 +436,34 @@ export default function Home() {
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4">
             <h2 className="text-base font-semibold tracking-normal text-card-foreground">Funil de resolucao</h2>
-            <p className="text-sm text-muted-foreground">Caminho dos atendimentos</p>
+            <p className="text-sm text-muted-foreground">Cada etapa abre a lista correspondente</p>
           </div>
           <div className="space-y-3">
-            {dashboard.resolutionFunnel.map((step) => (
-              <div key={step.label} className="rounded-md bg-secondary px-3 py-2">
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="font-medium text-muted-foreground">{step.label}</span>
-                  <span className="font-semibold text-card-foreground">{step.value}</span>
-                </div>
-                <div className="mt-2 h-2 rounded-full bg-card">
-                  <div className="h-2 rounded-full bg-primary" style={{ width: `${step.share}%` }} />
-                </div>
-              </div>
-            ))}
+            {dashboard.resolutionFunnel.map((step) => {
+              const rows =
+                step.label === 'Sem solucao'
+                  ? demoTickets.filter((ticket) => ticket.unresolved)
+                  : step.label.includes('Transferidos')
+                    ? demoTickets.filter((ticket) => ticket.botFallback)
+                    : demoTickets;
+
+              return (
+                <button
+                  key={step.label}
+                  type="button"
+                  className="w-full rounded-md bg-secondary px-3 py-2 text-left transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => openDrawer(step.label, rows, [{ label: 'Funil', value: step.label }])}
+                >
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium text-muted-foreground">{step.label}</span>
+                    <span className="font-semibold text-card-foreground">{step.value}</span>
+                  </div>
+                  <div className="mt-2 h-2 rounded-full bg-card">
+                    <div className="h-2 rounded-full bg-primary" style={{ width: `${step.share}%` }} />
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </section>
       </div>
@@ -413,22 +472,18 @@ export default function Home() {
         <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-base font-semibold tracking-normal text-card-foreground">Historico de conversas</h2>
-            <p className="text-sm text-muted-foreground">Tickets, mensagens e sinais de auditoria por atendimento</p>
+            <p className="text-sm text-muted-foreground">Clique em uma conversa para ver timeline, risco, tags e resumo</p>
           </div>
           <div className="flex w-fit items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
             <History className="h-4 w-4" aria-hidden="true" />
-            {ticketsQuery.isFetching || messagesQuery.isFetching ? 'Sincronizando' : 'Dados da API'}
+            {demoTickets.length} conversas demo
           </div>
         </div>
 
         <div className="grid gap-0 lg:grid-cols-[0.9fr_1.4fr]">
           <div className="border-b border-border p-4 lg:border-b-0 lg:border-r">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-card-foreground">{tickets.length} conversas</p>
-              <span className="text-xs font-medium text-muted-foreground">mock via API</span>
-            </div>
             <div className="max-h-[520px] space-y-3 overflow-auto pr-1">
-              {tickets.map((ticket) => {
+              {demoTickets.slice(0, 16).map((ticket) => {
                 const selected = ticket.id === selectedTicket?.id;
 
                 return (
@@ -446,13 +501,7 @@ export default function Home() {
                         <p className="font-medium text-card-foreground">{ticket.customerName}</p>
                         <p className="truncate text-sm text-muted-foreground">{ticket.subject}</p>
                       </div>
-                      <span
-                        className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
-                          ticketStatusStyles[ticket.status as keyof typeof ticketStatusStyles] ?? ticketStatusStyles.OPEN
-                        }`}
-                      >
-                        {ticket.status}
-                      </span>
+                      <StatusBadge status={ticket.status} />
                     </div>
                     <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                       <span>{ticket.queue}</span>
@@ -467,7 +516,7 @@ export default function Home() {
           </div>
 
           <div className="min-w-0 p-4">
-            {selectedTicket && conversation ? (
+            {selectedTicket ? (
               <>
                 <div className="rounded-lg border border-border bg-secondary p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -482,9 +531,8 @@ export default function Home() {
                       <span className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-sm font-medium text-warning">
                         {selectedTicket.rating} estrelas
                       </span>
-                      <span className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-muted-foreground">
-                        {selectedTicket.sentiment}
-                      </span>
+                      <SentimentBadge sentiment={selectedTicket.sentiment} />
+                      <RiskBadge risk={selectedTicket.risk} />
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -496,32 +544,26 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="mt-4 max-h-[560px] space-y-3 overflow-auto rounded-lg border border-border bg-card p-4">
-                  {conversation.data.map((message) => (
-                    <article
-                      key={message.id}
-                      className={`max-w-[86%] rounded-lg border p-3 ${messageDirectionStyles[message.direction]}`}
-                    >
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-card-foreground">{message.senderName}</p>
-                          <p className="text-xs text-muted-foreground">{message.senderRole}</p>
-                        </div>
-                        <time className="text-xs text-muted-foreground">{formatDateTime(message.sentAt)}</time>
-                      </div>
-                      <p className="text-sm leading-6">{message.content}</p>
-                    </article>
-                  ))}
+                <div className="mt-4 max-h-[560px] overflow-auto rounded-lg border border-border bg-card p-4">
+                  <ConversationTimeline messages={selectedMessages} />
                 </div>
               </>
-            ) : (
-              <div className="rounded-lg border border-border bg-secondary p-6 text-sm text-muted-foreground">
-                Nenhuma conversa selecionada.
-              </div>
-            )}
+            ) : null}
           </div>
         </div>
       </section>
+
+      <DrilldownDrawer
+        open={Boolean(drawer)}
+        title={drawer?.title ?? ''}
+        description={drawer?.description ?? ''}
+        filters={drawer?.filters}
+        rows={drawer?.rows ?? []}
+        columns={ticketColumns}
+        getSearchValue={getTicketSearchValue}
+        onClose={() => setDrawer(null)}
+        onRowClick={(ticket) => setSelectedTicketId(ticket.id)}
+      />
     </DashboardShell>
   );
 }

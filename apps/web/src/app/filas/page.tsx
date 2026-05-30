@@ -1,46 +1,129 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, Clock3, Inbox, Star } from 'lucide-react';
+import { useState } from 'react';
+import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { DashboardShell } from '@/components/dashboard-shell';
-import { getQueues, type QueueItem } from '@/lib/api-client';
+import { DrilldownDrawer } from '@/components/drilldown-drawer';
+import { RiskBadge } from '@/components/risk-badge';
+import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
+import { demoQueueMetrics, getTicketsByQueue, type DemoQueueMetric, type DemoTicket } from '@/lib/demo-data';
+
+const queueColumns: DataTableColumn<DemoQueueMetric>[] = [
+  {
+    key: 'name',
+    header: 'Fila',
+    accessor: (queue) => <span className="font-semibold text-card-foreground">{queue.name}</span>,
+  },
+  {
+    key: 'open',
+    header: 'Abertos',
+    accessor: (queue) => <span className="font-semibold text-card-foreground">{queue.openTickets}</span>,
+  },
+  {
+    key: 'wait',
+    header: 'Espera',
+    accessor: (queue) => `${queue.averageWaitMinutes.toFixed(1).replace('.', ',')} min`,
+  },
+  {
+    key: 'rating',
+    header: 'Nota',
+    accessor: (queue) => queue.averageRating.toFixed(1).replace('.', ','),
+  },
+  {
+    key: 'risk',
+    header: 'Risco',
+    accessor: (queue) => <RiskBadge risk={queue.riskTickets >= 8 ? 'alto' : queue.riskTickets >= 4 ? 'medio' : 'baixo'} />,
+  },
+  {
+    key: 'owner',
+    header: 'Responsavel',
+    accessor: (queue) => queue.owner,
+  },
+];
 
 export default function FilasPage() {
-  const queuesQuery = useQuery({
-    queryKey: ['queues'],
-    queryFn: getQueues,
-  });
+  const [drawer, setDrawer] = useState<{ queue: DemoQueueMetric; rows: DemoTicket[] } | null>(null);
 
-  const queues = queuesQuery.data?.data ?? [] as QueueItem[];
+  function openQueue(queue: DemoQueueMetric) {
+    setDrawer({ queue, rows: getTicketsByQueue(queue.name) });
+  }
 
   return (
     <DashboardShell>
       <section className="space-y-6">
         <div className="rounded-lg border border-border bg-card p-6 shadow-panel">
-          <h2 className="text-xl font-semibold text-card-foreground">Filas</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Monitoramento de filas com tickets abertos e tempo de espera medio.
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Operacao por fila</p>
+          <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Filas</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+            Cada fila agora abre a lista de tickets, riscos, responsavel e gargalos. Clique no numero de abertos ou na linha da tabela para detalhar.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {queues.length > 0 ? (
-            queues.map((queue) => (
-              <div key={queue.id} className="rounded-3xl border border-border bg-card p-5 shadow-panel">
-                <p className="text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">{queue.name}</p>
-                <p className="mt-3 text-3xl font-semibold text-card-foreground">{queue.openTickets}</p>
-                <p className="mt-1 text-sm text-muted-foreground">Tickets abertos</p>
-                <div className="mt-4 rounded-2xl bg-secondary px-4 py-3 text-sm text-muted-foreground">
-                  Espera media de <span className="font-semibold text-card-foreground">{queue.averageWaitMinutes} min</span>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {demoQueueMetrics.map((queue) => (
+            <button
+              key={queue.id}
+              type="button"
+              className="rounded-lg border border-border bg-card p-4 text-left shadow-panel transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => openQueue(queue)}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-card-foreground">{queue.name}</p>
+                  <p className="text-xs text-muted-foreground">{queue.owner}</p>
                 </div>
+                <Inbox className="h-4 w-4 text-primary" aria-hidden="true" />
               </div>
-            ))
-          ) : (
-            <div className="rounded-3xl border border-border bg-card p-6 text-sm text-muted-foreground shadow-panel">
-              {queuesQuery.isFetching ? 'Carregando filas...' : 'Nao foi possivel carregar as filas.'}
-            </div>
-          )}
+              <p className="mt-4 text-3xl font-semibold text-card-foreground">{queue.openTickets}</p>
+              <p className="mt-1 text-xs text-muted-foreground">tickets abertos</p>
+              <div className="mt-4 grid gap-2 text-xs text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+                  {queue.averageWaitMinutes.toFixed(1).replace('.', ',')} min espera
+                </span>
+                <span className="flex items-center gap-2">
+                  <Star className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
+                  {queue.averageRating.toFixed(1).replace('.', ',')} nota media
+                </span>
+                <span className="flex items-center gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                  {queue.riskTickets} em risco
+                </span>
+              </div>
+            </button>
+          ))}
         </div>
+
+        <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
+          <div className="mb-4">
+            <h3 className="text-base font-semibold text-card-foreground">Tabela de filas</h3>
+            <p className="text-sm text-muted-foreground">Busca, ranking e clique para abrir os tickets da fila.</p>
+          </div>
+          <DataTable
+            data={demoQueueMetrics}
+            columns={queueColumns}
+            getSearchValue={(queue) => `${queue.name} ${queue.owner}`}
+            searchPlaceholder="Buscar fila ou responsavel"
+            onRowClick={openQueue}
+          />
+        </section>
       </section>
+
+      <DrilldownDrawer
+        open={Boolean(drawer)}
+        title={drawer ? `Fila ${drawer.queue.name}` : ''}
+        description={
+          drawer
+            ? `${drawer.queue.openTickets} tickets abertos, espera media de ${drawer.queue.averageWaitMinutes.toFixed(1).replace('.', ',')} minutos e ${drawer.queue.riskTickets} casos em risco.`
+            : ''
+        }
+        filters={drawer ? [{ label: 'Fila', value: drawer.queue.name }] : []}
+        rows={drawer?.rows ?? []}
+        columns={ticketColumns}
+        getSearchValue={getTicketSearchValue}
+        onClose={() => setDrawer(null)}
+      />
     </DashboardShell>
   );
 }
