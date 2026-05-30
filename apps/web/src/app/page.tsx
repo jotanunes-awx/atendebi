@@ -7,6 +7,7 @@ import {
   BrainCircuit,
   CheckCircle2,
   Clock3,
+  History,
   Lightbulb,
   MessageCircle,
   ShoppingCart,
@@ -26,7 +27,8 @@ import {
 } from 'recharts';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { MetricCard } from '@/components/metric-card';
-import { getDashboardOverview } from '@/lib/api-client';
+import { getConversationMessages, getDashboardOverview, getTickets } from '@/lib/api-client';
+import { mockConversationMessages, mockConversationTickets } from '@/lib/mock-conversation-history';
 import { mockDashboardOverview, type MetricIconKey } from '@/lib/mock-dashboard';
 
 const qualitySignalStyles = {
@@ -39,6 +41,18 @@ const operationalRiskStyles = {
   danger: 'bg-rose-50 text-rose-700',
   warning: 'bg-amber-50 text-amber-700',
   neutral: 'bg-zinc-50 text-zinc-700',
+};
+
+const ticketStatusStyles = {
+  OPEN: 'border-teal-200 bg-teal-50 text-teal-800',
+  PENDING: 'border-amber-200 bg-amber-50 text-amber-800',
+  CLOSED: 'border-zinc-200 bg-zinc-50 text-zinc-700',
+};
+
+const messageDirectionStyles = {
+  INBOUND: 'mr-auto border-zinc-200 bg-white text-zinc-800',
+  OUTBOUND: 'ml-auto border-teal-200 bg-teal-50 text-zinc-800',
+  SYSTEM: 'mx-auto border-zinc-200 bg-zinc-50 text-zinc-600',
 };
 
 const metricIcons = {
@@ -69,11 +83,30 @@ function RatingStars({ rating }: { rating: number }) {
   );
 }
 
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
 export default function Home() {
   const [chartsReady, setChartsReady] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState('ticket-1001');
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'overview'],
     queryFn: getDashboardOverview,
+  });
+  const ticketsQuery = useQuery({
+    queryKey: ['tickets', 'history'],
+    queryFn: getTickets,
+  });
+  const messagesQuery = useQuery({
+    queryKey: ['conversations', selectedTicketId, 'messages'],
+    queryFn: () => getConversationMessages(selectedTicketId),
+    enabled: Boolean(selectedTicketId),
   });
 
   useEffect(() => {
@@ -81,6 +114,9 @@ export default function Home() {
   }, []);
 
   const dashboard = dashboardQuery.data ?? mockDashboardOverview;
+  const tickets = ticketsQuery.data?.data ?? mockConversationTickets;
+  const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0];
+  const conversation = messagesQuery.data ?? mockConversationMessages[selectedTicket?.id ?? selectedTicketId];
   const statusLabel = dashboardQuery.isLoading
     ? 'Carregando API'
     : dashboardQuery.isError
@@ -321,39 +357,116 @@ export default function Home() {
       </div>
 
       <section className="mt-5 rounded-lg border border-border bg-white shadow-panel">
-        <div className="border-b border-border px-4 py-3">
-          <h2 className="text-base font-semibold tracking-normal text-zinc-950">Conversas recentes</h2>
-          <p className="text-sm text-zinc-500">Ultimos atendimentos com sinais operacionais</p>
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-base font-semibold tracking-normal text-zinc-950">Historico de conversas</h2>
+            <p className="text-sm text-zinc-500">Tickets, mensagens e sinais de auditoria por atendimento</p>
+          </div>
+          <div className="flex w-fit items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-1 text-sm font-medium text-teal-800">
+            <History className="h-4 w-4" aria-hidden="true" />
+            {ticketsQuery.isFetching || messagesQuery.isFetching ? 'Sincronizando' : 'Dados da API'}
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-            <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
-              <tr>
-                <th className="px-4 py-3 font-semibold">Ticket</th>
-                <th className="px-4 py-3 font-semibold">Cliente</th>
-                <th className="px-4 py-3 font-semibold">Fila</th>
-                <th className="px-4 py-3 font-semibold">Atendente</th>
-                <th className="px-4 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold">Sinal</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {dashboard.conversations.map((conversation) => (
-                <tr key={conversation.id} className="hover:bg-zinc-50">
-                  <td className="px-4 py-3 font-medium text-zinc-950">{conversation.id}</td>
-                  <td className="px-4 py-3 text-zinc-700">{conversation.customer}</td>
-                  <td className="px-4 py-3 text-zinc-700">{conversation.queue}</td>
-                  <td className="px-4 py-3 text-zinc-700">{conversation.agent}</td>
-                  <td className="px-4 py-3 text-zinc-700">{conversation.status}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700">
-                      {conversation.signal}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+        <div className="grid gap-0 lg:grid-cols-[0.9fr_1.4fr]">
+          <div className="border-b border-border p-4 lg:border-b-0 lg:border-r">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-zinc-950">{tickets.length} conversas</p>
+              <span className="text-xs font-medium text-zinc-500">mock via API</span>
+            </div>
+            <div className="max-h-[520px] space-y-3 overflow-auto pr-1">
+              {tickets.map((ticket) => {
+                const selected = ticket.id === selectedTicket?.id;
+
+                return (
+                  <button
+                    key={ticket.id}
+                    aria-pressed={selected}
+                    className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                      selected ? 'border-teal-300 bg-teal-50' : 'border-border bg-white hover:bg-zinc-50'
+                    }`}
+                    type="button"
+                    onClick={() => setSelectedTicketId(ticket.id)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-zinc-950">{ticket.customerName}</p>
+                        <p className="truncate text-sm text-zinc-500">{ticket.subject}</p>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                          ticketStatusStyles[ticket.status as keyof typeof ticketStatusStyles] ?? ticketStatusStyles.OPEN
+                        }`}
+                      >
+                        {ticket.status}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-zinc-500">
+                      <span>{ticket.queue}</span>
+                      <span className="text-right">{formatDateTime(ticket.lastMessageAt)}</span>
+                      <span>{ticket.agent}</span>
+                      <span className="text-right">{ticket.resolutionStatus}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="min-w-0 p-4">
+            {selectedTicket && conversation ? (
+              <>
+                <div className="rounded-lg border border-border bg-zinc-50 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-zinc-500">{selectedTicket.id}</p>
+                      <h3 className="text-lg font-semibold tracking-normal text-zinc-950">
+                        {selectedTicket.customerName}
+                      </h3>
+                      <p className="mt-1 text-sm text-zinc-600">{selectedTicket.summary}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-sm font-medium text-amber-800">
+                        {selectedTicket.rating} estrelas
+                      </span>
+                      <span className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm font-medium text-zinc-700">
+                        {selectedTicket.sentiment}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {selectedTicket.tags.map((tag) => (
+                      <span key={tag} className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-4 max-h-[560px] space-y-3 overflow-auto rounded-lg border border-border bg-white p-4">
+                  {conversation.data.map((message) => (
+                    <article
+                      key={message.id}
+                      className={`max-w-[86%] rounded-lg border p-3 ${messageDirectionStyles[message.direction]}`}
+                    >
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-zinc-950">{message.senderName}</p>
+                          <p className="text-xs text-zinc-500">{message.senderRole}</p>
+                        </div>
+                        <time className="text-xs text-zinc-500">{formatDateTime(message.sentAt)}</time>
+                      </div>
+                      <p className="text-sm leading-6">{message.content}</p>
+                    </article>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-lg border border-border bg-zinc-50 p-6 text-sm text-zinc-600">
+                Nenhuma conversa selecionada.
+              </div>
+            )}
+          </div>
         </div>
       </section>
     </DashboardShell>
