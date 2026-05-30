@@ -92,7 +92,20 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function useDarkMode() {
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem('atendebi-theme');
+    setTheme(stored === 'dark' ? 'dark' : 'light');
+  }, []);
+
+  return theme;
+}
+
 export default function Home() {
+  const theme = useDarkMode();
+  const isDark = theme === 'dark';
   const [chartsReady, setChartsReady] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState('ticket-1001');
   const dashboardQuery = useQuery({
@@ -155,11 +168,37 @@ export default function Home() {
             {chartsReady ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <LineChart data={dashboard.hourlyTicketVolume} margin={{ left: -18, right: 8, top: 8, bottom: 0 }}>
-                  <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" />
-                  <XAxis dataKey="hour" tickLine={false} axisLine={false} />
-                  <YAxis tickLine={false} axisLine={false} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="tickets" stroke="#0f766e" strokeWidth={3} dot={{ r: 3 }} />
+                  <CartesianGrid
+                    stroke={isDark ? 'rgba(148, 163, 184, 0.25)' : '#e4e4e7'}
+                    strokeDasharray="3 3"
+                  />
+                  <XAxis
+                    dataKey="hour"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: isDark ? '#cbd5e1' : '#475569' }}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: isDark ? '#cbd5e1' : '#475569' }}
+                  />
+                  <Tooltip
+                    wrapperStyle={{ outline: 'none' }}
+                    contentStyle={{
+                      backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                      borderColor: isDark ? '#334155' : '#e2e8f0',
+                      color: isDark ? '#f8fafc' : '#0f172a',
+                    }}
+                    labelStyle={{ color: isDark ? '#94a3b8' : '#475569' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="tickets"
+                    stroke={isDark ? '#5eead4' : '#0f766e'}
+                    strokeWidth={3}
+                    dot={{ r: 3, fill: isDark ? '#2dd4bf' : '#0f766e' }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -181,11 +220,35 @@ export default function Home() {
                   layout="vertical"
                   margin={{ left: 12, right: 8, top: 8, bottom: 0 }}
                 >
-                  <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tickLine={false} axisLine={false} />
-                  <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={78} />
-                  <Tooltip />
-                  <Bar dataKey="abertos" fill="#b45309" radius={[0, 4, 4, 0]} />
+                  <CartesianGrid
+                    stroke={isDark ? 'rgba(148, 163, 184, 0.25)' : '#e4e4e7'}
+                    strokeDasharray="3 3"
+                    horizontal={false}
+                  />
+                  <XAxis
+                    type="number"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: isDark ? '#cbd5e1' : '#475569' }}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tickLine={false}
+                    axisLine={false}
+                    width={78}
+                    tick={{ fill: isDark ? '#cbd5e1' : '#475569' }}
+                  />
+                  <Tooltip
+                    wrapperStyle={{ outline: 'none' }}
+                    contentStyle={{
+                      backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                      borderColor: isDark ? '#334155' : '#e2e8f0',
+                      color: isDark ? '#f8fafc' : '#0f172a',
+                    }}
+                    labelStyle={{ color: isDark ? '#94a3b8' : '#475569' }}
+                  />
+                  <Bar dataKey="abertos" fill={isDark ? '#5eead4' : '#b45309'} radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

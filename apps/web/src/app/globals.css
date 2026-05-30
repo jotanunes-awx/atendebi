@@ -14,6 +14,62 @@
   --primary-foreground: 0 0% 100%;
 }
 
+body.dark {
+  --background: 222 8% 10%;
+  --foreground: 210 16% 96%;
+  --card: 222 12% 16%;
+  --card-foreground: 210 16% 96%;
+  --muted: 218 14% 16%;
+  --muted-foreground: 210 20% 76%;
+  --border: 222 12% 28%;
+  --primary: 173 80% 50%;
+  --primary-foreground: 0 0% 100%;
+}
+
+body.dark .bg-white {
+  background-color: hsl(var(--card)) !important;
+}
+
+body.dark .bg-zinc-50 {
+  background-color: hsl(var(--muted)) !important;
+}
+
+body.dark .bg-zinc-100,
+body.dark .hover\:bg-zinc-100:hover {
+  background-color: hsl(var(--muted)) !important;
+}
+
+body.dark .bg-teal-50 {
+  background-color: rgba(20, 184, 166, 0.14) !important;
+}
+
+body.dark .text-zinc-950,
+body.dark .text-zinc-800,
+body.dark .text-zinc-700,
+body.dark .text-zinc-600,
+body.dark .text-zinc-500 {
+  color: hsl(var(--foreground)) !important;
+}
+
+body.dark .border-zinc-100,
+body.dark .border-zinc-200,
+body.dark .border-zinc-300,
+body.dark .border-zinc-400 {
+  border-color: hsl(var(--border)) !important;
+}
+
+body.dark .border-teal-200 {
+  border-color: rgba(20, 184, 166, 0.3) !important;
+}
+
+body.dark .text-teal-800 {
+  color: #7dd3c8 !important;
+}
+
+body.dark .bg-teal-50 {
+  background-color: rgba(20, 184, 166, 0.12) !important;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -26,4 +82,5 @@ body {
   margin: 0;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
+  transition: background 0.2s ease, color 0.2s ease;
 }
