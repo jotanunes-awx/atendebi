@@ -68,6 +68,33 @@ npm run dev
 - `GET /queues`
 - `GET /agents`
 
+## Permissoes no MVP
+
+A autenticacao real com Microsoft Entra ID ainda sera acoplada em fase futura. No MVP local, a API usa headers mockados para simular usuario, tenant e papeis:
+
+```bash
+curl http://localhost:3333/dashboard/overview ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-user-id: local-user" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+```
+
+Perfis previstos:
+
+- `ATENDEBI_ADMIN`
+- `ATENDEBI_DIRETORIA`
+- `ATENDEBI_GESTOR`
+- `ATENDEBI_QUALIDADE`
+- `ATENDEBI_COMERCIAL`
+- `ATENDEBI_ATENDENTE`
+
+Regras iniciais:
+
+- Dashboard: admin, diretoria, gestor, qualidade e comercial.
+- Tickets e historico de conversas: todos os perfis, incluindo atendente.
+- Filas e atendentes: admin, diretoria, gestor e qualidade.
+- Healthcheck e webhook BLiP nao usam essas permissoes mockadas.
+
 ## Decisoes importantes do MVP
 
 - O frontend nunca chama a API do BLiP diretamente.

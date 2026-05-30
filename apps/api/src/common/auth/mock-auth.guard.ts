@@ -1,9 +1,10 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import { AtendeBIRole, isAtendeBIRole } from './app-roles';
 
 export type MockAuthenticatedUser = {
   id: string;
   tenantId: string;
-  roles: string[];
+  roles: AtendeBIRole[];
 };
 
 @Injectable()
@@ -18,7 +19,7 @@ export class MockAuthGuard implements CanActivate {
       roles: rolesHeader
         .split(',')
         .map((role: string) => role.trim())
-        .filter(Boolean),
+        .filter(isAtendeBIRole),
     } satisfies MockAuthenticatedUser;
 
     return true;

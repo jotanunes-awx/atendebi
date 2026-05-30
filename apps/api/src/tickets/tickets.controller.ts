@@ -1,11 +1,15 @@
 import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { PERMISSION_GROUPS } from '../common/auth/app-roles';
 import { MockAuthGuard } from '../common/auth/mock-auth.guard';
+import { Roles } from '../common/auth/roles.decorator';
+import { RolesGuard } from '../common/auth/roles.guard';
 import { conversationTickets, findConversationTicket } from '../conversations/mock-conversation-history';
 
 @ApiTags('Tickets')
 @ApiBearerAuth()
-@UseGuards(MockAuthGuard)
+@UseGuards(MockAuthGuard, RolesGuard)
+@Roles(...PERMISSION_GROUPS.CONVERSATION_READ)
 @Controller('tickets')
 export class TicketsController {
   @Get()

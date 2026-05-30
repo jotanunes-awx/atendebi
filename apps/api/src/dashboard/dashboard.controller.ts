@@ -1,6 +1,9 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { PERMISSION_GROUPS } from '../common/auth/app-roles';
 import { MockAuthGuard } from '../common/auth/mock-auth.guard';
+import { Roles } from '../common/auth/roles.decorator';
+import { RolesGuard } from '../common/auth/roles.guard';
 
 const dashboardOverview = {
   period: 'today',
@@ -161,7 +164,8 @@ const dashboardOverview = {
 
 @ApiTags('Dashboard')
 @ApiBearerAuth()
-@UseGuards(MockAuthGuard)
+@UseGuards(MockAuthGuard, RolesGuard)
+@Roles(...PERMISSION_GROUPS.DASHBOARD_READ)
 @Controller('dashboard')
 export class DashboardController {
   @Get('overview')
