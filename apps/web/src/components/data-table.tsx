@@ -70,6 +70,7 @@ export function DataTable<T>({
                   key={rowIndex}
                   role={onRowClick ? 'button' : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
+                  title={onRowClick ? 'Abrir detalhe' : undefined}
                   className={cn(onRowClick && 'cursor-pointer transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring')}
                   onClick={() => onRowClick?.(row)}
                   onKeyDown={(event) => {

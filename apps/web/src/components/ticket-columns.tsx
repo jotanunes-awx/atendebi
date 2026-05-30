@@ -20,6 +20,8 @@ export function getTicketSearchValue(ticket: DemoTicket) {
     ticket.customerContact,
     ticket.queue,
     ticket.agent,
+    ticket.channel,
+    ticket.group,
     ticket.status,
     ticket.subject,
     ticket.sentiment,
@@ -58,6 +60,16 @@ export const ticketColumns: DataTableColumn<DemoTicket>[] = [
     key: 'agent',
     header: 'Atendente',
     accessor: (ticket) => ticket.agent,
+  },
+  {
+    key: 'channel',
+    header: 'Canal / Grupo',
+    accessor: (ticket) => (
+      <div>
+        <p className="font-medium text-card-foreground">{ticket.channel}</p>
+        <p className="text-xs text-muted-foreground">{ticket.group}</p>
+      </div>
+    ),
   },
   {
     key: 'status',

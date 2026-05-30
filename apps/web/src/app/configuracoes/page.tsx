@@ -1,10 +1,10 @@
 'use client';
 
-import { Bell, Copy, Database, KeyRound, PlugZap, ShieldCheck, UsersRound } from 'lucide-react';
+import { Bell, Copy, Database, KeyRound, Layers3, PlugZap, ShieldCheck, UsersRound } from 'lucide-react';
 import { useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { Button } from '@/components/ui/button';
-import { demoIntegrationStatus } from '@/lib/demo-data';
+import { demoConversationGroups, demoIntegrationStatus } from '@/lib/demo-data';
 import { useAuth } from '@/lib/auth';
 
 const roles = [
@@ -80,6 +80,46 @@ export default function ConfiguracoesPage() {
             </div>
           </section>
         </div>
+
+        <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Layers3 className="h-5 w-5 text-primary" aria-hidden="true" />
+                <h3 className="text-base font-semibold text-card-foreground">Grupos de atendimento</h3>
+              </div>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                Estrutura mockada para o coordenador criar carteiras como JotaVendas 1, JotaVendas 2, JotaVendas 3,
+                Retencao VIP ou qualquer grupo operacional que ajude a filtrar historico e desempenho.
+              </p>
+            </div>
+            <Button variant="outline" type="button">
+              Novo grupo mockado
+            </Button>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {demoConversationGroups.slice(0, 8).map((group) => (
+              <article key={group.id} className="rounded-lg border border-border bg-secondary p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-card-foreground">{group.name}</p>
+                    <p className="text-xs text-muted-foreground">{group.queues.join(', ')}</p>
+                  </div>
+                  <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                    {group.tickets}
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                  <span>{group.openTickets} abertos</span>
+                  <span className="text-right">{group.highRiskTickets} risco alto</span>
+                  <span>Nota {group.averageRating.toFixed(1).replace('.', ',')}</span>
+                  <span className="text-right">{group.channels.length} canais</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
 
         <div className="grid gap-5 xl:grid-cols-3">
           <ConfigPanel

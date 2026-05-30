@@ -6,6 +6,7 @@ import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { DrilldownDrawer } from '@/components/drilldown-drawer';
 import { RiskBadge } from '@/components/risk-badge';
+import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { demoQueueMetrics, getTicketsByQueue, type DemoQueueMetric, type DemoTicket } from '@/lib/demo-data';
 
@@ -44,6 +45,7 @@ const queueColumns: DataTableColumn<DemoQueueMetric>[] = [
 
 export default function FilasPage() {
   const [drawer, setDrawer] = useState<{ queue: DemoQueueMetric; rows: DemoTicket[] } | null>(null);
+  const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
 
   function openQueue(queue: DemoQueueMetric) {
     setDrawer({ queue, rows: getTicketsByQueue(queue.name) });
@@ -123,6 +125,12 @@ export default function FilasPage() {
         columns={ticketColumns}
         getSearchValue={getTicketSearchValue}
         onClose={() => setDrawer(null)}
+        onRowClick={(ticket) => setDetail({ ticket, contextLabel: drawer ? `Fila ${drawer.queue.name}` : 'Filas' })}
+      />
+      <TicketDetailDrawer
+        ticket={detail?.ticket ?? null}
+        contextLabel={detail?.contextLabel}
+        onClose={() => setDetail(null)}
       />
     </DashboardShell>
   );

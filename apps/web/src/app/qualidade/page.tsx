@@ -6,6 +6,7 @@ import { DashboardShell } from '@/components/dashboard-shell';
 import { DrilldownDrawer } from '@/components/drilldown-drawer';
 import { MetricCard } from '@/components/metric-card';
 import { RiskBadge } from '@/components/risk-badge';
+import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { average, demoQualityReasons, demoTickets, type DemoTicket } from '@/lib/demo-data';
 
@@ -18,6 +19,7 @@ type QualityDrawer = {
 
 export default function QualidadePage() {
   const [drawer, setDrawer] = useState<QualityDrawer | null>(null);
+  const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
   const ratedTickets = demoTickets.filter((ticket) => ticket.rating > 0);
   const lowRated = demoTickets.filter((ticket) => ticket.rating <= 2);
   const negativeSentiment = demoTickets.filter((ticket) => ticket.sentiment === 'negativo');
@@ -150,6 +152,12 @@ export default function QualidadePage() {
         columns={ticketColumns}
         getSearchValue={getTicketSearchValue}
         onClose={() => setDrawer(null)}
+        onRowClick={(ticket) => setDetail({ ticket, contextLabel: drawer?.title ?? 'Qualidade' })}
+      />
+      <TicketDetailDrawer
+        ticket={detail?.ticket ?? null}
+        contextLabel={detail?.contextLabel}
+        onClose={() => setDetail(null)}
       />
     </DashboardShell>
   );

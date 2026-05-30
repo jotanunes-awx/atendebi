@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { DrilldownDrawer } from '@/components/drilldown-drawer';
+import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { demoAgentMetrics, getTicketsByAgent, type DemoAgentMetric, type DemoTicket } from '@/lib/demo-data';
 
@@ -48,6 +49,7 @@ const agentColumns: DataTableColumn<DemoAgentMetric>[] = [
 
 export default function AtendentesPage() {
   const [drawer, setDrawer] = useState<{ agent: DemoAgentMetric; rows: DemoTicket[] } | null>(null);
+  const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
 
   function openAgent(agent: DemoAgentMetric) {
     setDrawer({ agent, rows: getTicketsByAgent(agent.name) });
@@ -144,6 +146,12 @@ export default function AtendentesPage() {
         columns={ticketColumns}
         getSearchValue={getTicketSearchValue}
         onClose={() => setDrawer(null)}
+        onRowClick={(ticket) => setDetail({ ticket, contextLabel: drawer ? `Atendente ${drawer.agent.name}` : 'Atendentes' })}
+      />
+      <TicketDetailDrawer
+        ticket={detail?.ticket ?? null}
+        contextLabel={detail?.contextLabel}
+        onClose={() => setDetail(null)}
       />
     </DashboardShell>
   );

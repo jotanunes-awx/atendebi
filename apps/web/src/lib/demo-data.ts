@@ -3,7 +3,7 @@ import type { ConversationMessage } from '@/lib/mock-conversation-history';
 export type DemoTicketStatus = 'OPEN' | 'PENDING' | 'CLOSED' | 'CANCELED';
 export type DemoSentiment = 'positivo' | 'neutro' | 'negativo';
 export type DemoRisk = 'baixo' | 'medio' | 'alto';
-export type DemoChannel = 'WhatsApp' | 'Webchat' | 'Instagram';
+export type DemoChannel = 'WhatsApp' | 'Webchat' | 'Instagram' | 'Facebook' | 'Email';
 
 export type DemoTicket = {
   id: string;
@@ -15,6 +15,7 @@ export type DemoTicket = {
   resolutionStatus: string;
   rating: number;
   channel: DemoChannel;
+  group: string;
   subject: string;
   signal: string;
   sentiment: DemoSentiment;
@@ -100,7 +101,28 @@ const queueSeeds: QueueSeed[] = [
 ];
 
 const agents = ['Ana Lima', 'Carlos Souza', 'Beatriz Rocha', 'Rafael Martins', 'Juliana Santos'];
-const channels: DemoChannel[] = ['WhatsApp', 'Webchat', 'Instagram'];
+const channels: DemoChannel[] = ['WhatsApp', 'Webchat', 'Instagram', 'Facebook', 'Email'];
+const salesGroups = ['JotaVendas 1', 'JotaVendas 2', 'JotaVendas 3'];
+
+function resolveGroup(queue: string, index: number) {
+  if (queue === 'Comercial') {
+    return salesGroups[index % salesGroups.length];
+  }
+
+  if (queue === 'Financeiro') {
+    return index % 2 === 0 ? 'Financeiro Critico' : 'Financeiro Rotina';
+  }
+
+  if (queue === 'Retencao') {
+    return 'Retencao VIP';
+  }
+
+  if (queue === 'Pos-venda') {
+    return 'Pos-venda Digital';
+  }
+
+  return index % 2 === 0 ? 'Suporte Nivel 1' : 'Suporte Nivel 2';
+}
 const customers = [
   ['Marina Costa', '+55 11 98888-1001'],
   ['Joao Pereira', '+55 21 97777-1002'],
@@ -180,6 +202,7 @@ function buildTickets() {
         resolutionStatus: unresolved ? 'Nao solucionado' : 'Em andamento',
         rating,
         channel: channels[index % channels.length],
+        group: resolveGroup(queue.name, queueIndex),
         subject,
         signal: opportunity ? 'Venda' : complaint ? 'Reclamacao' : botFallback ? 'Bot' : 'Operacao',
         sentiment,
@@ -216,6 +239,7 @@ function buildTickets() {
       resolutionStatus: closedIndex % 9 === 0 ? 'Cancelado' : 'Resolvido',
       rating: opportunity ? 5 : closedIndex % 7 === 0 ? 2 : 4,
       channel: channels[closedIndex % channels.length],
+      group: resolveGroup(queue.name, closedIndex),
       subject,
       signal: opportunity ? 'Venda' : 'Resolucao',
       sentiment: opportunity ? 'positivo' : closedIndex % 7 === 0 ? 'negativo' : 'neutro',
@@ -320,12 +344,48 @@ export const demoIntegrationStatus = {
   aiEstimatedCost: 'R$ 420,00/mes',
 };
 
+export const demoConversationGroups = Array.from(new Set(demoTickets.map((ticket) => ticket.group))).map((group) => {
+  const tickets = demoTickets.filter((ticket) => ticket.group === group);
+
+  return {
+    id: group.toLowerCase().replace(/\s+/g, '-'),
+    name: group,
+    tickets: tickets.length,
+    openTickets: tickets.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING').length,
+    highRiskTickets: tickets.filter((ticket) => ticket.risk === 'alto').length,
+    averageRating: average(tickets.map((ticket) => ticket.rating)),
+    channels: Array.from(new Set(tickets.map((ticket) => ticket.channel))),
+    queues: Array.from(new Set(tickets.map((ticket) => ticket.queue))),
+  };
+});
+
+export const demoChannelGroups = channels.map((channel) => {
+  const tickets = demoTickets.filter((ticket) => ticket.channel === channel);
+
+  return {
+    id: channel.toLowerCase(),
+    name: channel,
+    tickets: tickets.length,
+    openTickets: tickets.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING').length,
+    highRiskTickets: tickets.filter((ticket) => ticket.risk === 'alto').length,
+    averageRating: average(tickets.map((ticket) => ticket.rating)),
+  };
+});
+
 export function getTicketsByQueue(queue: string) {
   return demoTickets.filter((ticket) => ticket.queue === queue);
 }
 
 export function getTicketsByAgent(agent: string) {
   return demoTickets.filter((ticket) => ticket.agent === agent);
+}
+
+export function getTicketsByGroup(group: string) {
+  return demoTickets.filter((ticket) => ticket.group === group);
+}
+
+export function getTicketsByChannel(channel: string) {
+  return demoTickets.filter((ticket) => ticket.channel === channel);
 }
 
 export function getTicketsByHour(hourLabel: string) {

@@ -82,7 +82,9 @@ export function DrilldownDrawer<T>({
         </div>
 
         <div className="flex flex-col gap-2 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">Exportacao e abertura de conversa ainda sao acoes mockadas no frontend.</p>
+          <p className="text-xs text-muted-foreground">
+            Clique em um registro para abrir o detalhe completo. Exportacao ainda e uma acao mockada no frontend.
+          </p>
           <div className="flex gap-2">
             {onOpenConversation ? (
               <Button variant="outline" type="button" onClick={onOpenConversation}>

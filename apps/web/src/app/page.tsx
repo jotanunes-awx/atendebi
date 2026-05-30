@@ -31,11 +31,15 @@ import { MetricCard } from '@/components/metric-card';
 import { RiskBadge } from '@/components/risk-badge';
 import { SentimentBadge } from '@/components/sentiment-badge';
 import { StatusBadge } from '@/components/status-badge';
+import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
+import { Button } from '@/components/ui/button';
 import { ticketColumns, getTicketSearchValue, formatDateTime } from '@/components/ticket-columns';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { getDashboardOverview } from '@/lib/api-client';
 import {
   demoAgentMetrics,
+  demoChannelGroups,
+  demoConversationGroups,
   demoOperationalRisks,
   demoTickets,
   getDashboardTickets,
@@ -63,6 +67,11 @@ type DrawerState = {
   description: string;
   filters: Array<{ label: string; value: string }>;
   rows: DemoTicket[];
+};
+
+type TicketDetailState = {
+  ticket: DemoTicket;
+  contextLabel?: string;
 };
 
 const metricIcons = {
@@ -105,6 +114,9 @@ export default function Home() {
   const isDark = theme === 'dark';
   const [chartsReady, setChartsReady] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState | null>(null);
+  const [detail, setDetail] = useState<TicketDetailState | null>(null);
+  const [historyGroup, setHistoryGroup] = useState('Todos');
+  const [historyChannel, setHistoryChannel] = useState('Todos');
   const [selectedTicketId, setSelectedTicketId] = useState(demoTickets[0]?.id ?? '');
 
   const dashboardQuery = useQuery({
@@ -121,6 +133,19 @@ export default function Home() {
     () => demoTickets.find((ticket) => ticket.id === selectedTicketId) ?? demoTickets[0],
     [selectedTicketId],
   );
+  const historyTickets = useMemo(() => {
+    return demoTickets.filter((ticket) => {
+      return (
+        (historyGroup === 'Todos' || ticket.group === historyGroup) &&
+        (historyChannel === 'Todos' || ticket.channel === historyChannel)
+      );
+    });
+  }, [historyChannel, historyGroup]);
+  useEffect(() => {
+    if (historyTickets.length > 0 && !historyTickets.some((ticket) => ticket.id === selectedTicketId)) {
+      setSelectedTicketId(historyTickets[0].id);
+    }
+  }, [historyTickets, selectedTicketId]);
   const selectedMessages = selectedTicket ? getDemoMessages(selectedTicket) : [];
   const statusLabel = dashboardQuery.isLoading
     ? 'Carregando API'
@@ -135,6 +160,11 @@ export default function Home() {
       filters,
       rows,
     });
+  }
+
+  function openTicketDetail(ticket: DemoTicket, contextLabel?: string) {
+    setSelectedTicketId(ticket.id);
+    setDetail({ ticket, contextLabel });
   }
 
   return (
@@ -472,18 +502,93 @@ export default function Home() {
         <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-base font-semibold tracking-normal text-card-foreground">Historico de conversas</h2>
-            <p className="text-sm text-muted-foreground">Clique em uma conversa para ver timeline, risco, tags e resumo</p>
+            <p className="text-sm text-muted-foreground">
+              Organize por grupo, canal e equipe antes de abrir a timeline ou o detalhe completo.
+            </p>
           </div>
           <div className="flex w-fit items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
             <History className="h-4 w-4" aria-hidden="true" />
-            {demoTickets.length} conversas demo
+            {historyTickets.length} de {demoTickets.length} conversas
+          </div>
+        </div>
+
+        <div className="border-b border-border p-4">
+          <div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+            <div>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-card-foreground">Grupos configuraveis</p>
+                  <p className="text-xs text-muted-foreground">Exemplo: JotaVendas 1, JotaVendas 2, Retencao VIP.</p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-md border border-border bg-secondary px-3 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:bg-primary/10"
+                  onClick={() => setHistoryGroup('Todos')}
+                >
+                  Todos
+                </button>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {demoConversationGroups.slice(0, 8).map((group) => {
+                  const selected = historyGroup === group.name;
+
+                  return (
+                    <button
+                      key={group.id}
+                      type="button"
+                      className={`rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                        selected ? 'border-primary/40 bg-primary/10' : 'border-border bg-card hover:bg-secondary'
+                      }`}
+                      onClick={() => setHistoryGroup(group.name)}
+                    >
+                      <p className="truncate font-semibold text-card-foreground">{group.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {group.openTickets} abertos · {group.highRiskTickets} risco alto
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">{group.channels.join(', ')}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-3 text-sm font-semibold text-card-foreground">Canais</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                    historyChannel === 'Todos'
+                      ? 'border-primary/40 bg-primary/10 text-primary'
+                      : 'border-border bg-secondary text-muted-foreground hover:bg-primary/10'
+                  }`}
+                  onClick={() => setHistoryChannel('Todos')}
+                >
+                  Todos
+                </button>
+                {demoChannelGroups.map((channel) => (
+                  <button
+                    key={channel.id}
+                    type="button"
+                    className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                      historyChannel === channel.name
+                        ? 'border-primary/40 bg-primary/10 text-primary'
+                        : 'border-border bg-secondary text-muted-foreground hover:bg-primary/10'
+                    }`}
+                    onClick={() => setHistoryChannel(channel.name)}
+                  >
+                    {channel.name} · {channel.tickets}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
         <div className="grid gap-0 lg:grid-cols-[0.9fr_1.4fr]">
           <div className="border-b border-border p-4 lg:border-b-0 lg:border-r">
             <div className="max-h-[520px] space-y-3 overflow-auto pr-1">
-              {demoTickets.slice(0, 16).map((ticket) => {
+              {historyTickets.slice(0, 32).map((ticket) => {
                 const selected = ticket.id === selectedTicket?.id;
 
                 return (
@@ -506,12 +611,17 @@ export default function Home() {
                     <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                       <span>{ticket.queue}</span>
                       <span className="text-right">{formatDateTime(ticket.lastMessageAt)}</span>
-                      <span>{ticket.agent}</span>
+                      <span>{ticket.group}</span>
                       <span className="text-right">{ticket.resolutionStatus}</span>
                     </div>
                   </button>
                 );
               })}
+              {historyTickets.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  Nenhuma conversa encontrada para este grupo/canal.
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -542,6 +652,15 @@ export default function Home() {
                       </span>
                     ))}
                   </div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2">
+                    <div className="text-xs text-muted-foreground">
+                      <span className="font-semibold text-card-foreground">{selectedTicket.channel}</span> ·{' '}
+                      {selectedTicket.group} · {selectedTicket.agent}
+                    </div>
+                    <Button type="button" size="sm" onClick={() => openTicketDetail(selectedTicket, 'Historico de conversas')}>
+                      Ver detalhe completo
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="mt-4 max-h-[560px] overflow-auto rounded-lg border border-border bg-card p-4">
@@ -562,7 +681,12 @@ export default function Home() {
         columns={ticketColumns}
         getSearchValue={getTicketSearchValue}
         onClose={() => setDrawer(null)}
-        onRowClick={(ticket) => setSelectedTicketId(ticket.id)}
+        onRowClick={(ticket) => openTicketDetail(ticket, drawer?.title)}
+      />
+      <TicketDetailDrawer
+        ticket={detail?.ticket ?? null}
+        contextLabel={detail?.contextLabel}
+        onClose={() => setDetail(null)}
       />
     </DashboardShell>
   );
