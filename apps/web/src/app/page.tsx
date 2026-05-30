@@ -30,29 +30,30 @@ import { MetricCard } from '@/components/metric-card';
 import { getConversationMessages, getDashboardOverview, getTickets } from '@/lib/api-client';
 import { mockConversationMessages, mockConversationTickets } from '@/lib/mock-conversation-history';
 import { mockDashboardOverview, type MetricIconKey } from '@/lib/mock-dashboard';
+import { useTheme } from '@/lib/theme';
 
 const qualitySignalStyles = {
-  danger: 'border-rose-100 bg-rose-50',
-  warning: 'border-amber-100 bg-amber-50',
-  neutral: 'border-zinc-100 bg-zinc-50',
+  danger: 'border-destructive/20 bg-destructive/10',
+  warning: 'border-warning/20 bg-warning/10',
+  neutral: 'border-border bg-secondary',
 };
 
 const operationalRiskStyles = {
-  danger: 'bg-rose-50 text-rose-700',
-  warning: 'bg-amber-50 text-amber-700',
-  neutral: 'bg-zinc-50 text-zinc-700',
+  danger: 'bg-destructive/10 text-destructive',
+  warning: 'bg-warning/10 text-warning',
+  neutral: 'bg-secondary text-muted-foreground',
 };
 
 const ticketStatusStyles = {
-  OPEN: 'border-teal-200 bg-teal-50 text-teal-800',
-  PENDING: 'border-amber-200 bg-amber-50 text-amber-800',
-  CLOSED: 'border-zinc-200 bg-zinc-50 text-zinc-700',
+  OPEN: 'border-primary/30 bg-primary/10 text-primary',
+  PENDING: 'border-warning/30 bg-warning/10 text-warning',
+  CLOSED: 'border-border bg-secondary text-muted-foreground',
 };
 
 const messageDirectionStyles = {
-  INBOUND: 'mr-auto border-zinc-200 bg-white text-zinc-800',
-  OUTBOUND: 'ml-auto border-teal-200 bg-teal-50 text-zinc-800',
-  SYSTEM: 'mx-auto border-zinc-200 bg-zinc-50 text-zinc-600',
+  INBOUND: 'mr-auto border-border bg-card text-foreground',
+  OUTBOUND: 'ml-auto border-primary/30 bg-primary/10 text-foreground',
+  SYSTEM: 'mx-auto border-border bg-secondary text-muted-foreground',
 };
 
 const metricIcons = {
@@ -73,7 +74,7 @@ function RatingStars({ rating }: { rating: number }) {
         return (
           <Star
             key={index}
-            className="h-6 w-6 text-amber-500"
+            className="h-6 w-6 text-warning"
             fill={filled ? '#f59e0b' : 'none'}
             aria-hidden="true"
           />
@@ -92,19 +93,8 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
-function useDarkMode() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem('atendebi-theme');
-    setTheme(stored === 'dark' ? 'dark' : 'light');
-  }, []);
-
-  return theme;
-}
-
 export default function Home() {
-  const theme = useDarkMode();
+  const { theme } = useTheme();
   const isDark = theme === 'dark';
   const [chartsReady, setChartsReady] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState('ticket-1001');
@@ -138,14 +128,14 @@ export default function Home() {
 
   return (
     <DashboardShell>
-      <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border bg-white px-4 py-3 shadow-panel sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border bg-card px-4 py-3 shadow-panel sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-zinc-950">Dashboard conectado ao endpoint /dashboard/overview</p>
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm font-medium text-card-foreground">Dashboard conectado ao endpoint /dashboard/overview</p>
+          <p className="text-sm text-muted-foreground">
             Fonte atual: {statusLabel} · {dashboard.periodLabel}
           </p>
         </div>
-        <span className="w-fit rounded-md border border-teal-200 bg-teal-50 px-3 py-1 text-sm font-medium text-teal-800">
+        <span className="w-fit rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
           {dashboardQuery.isFetching ? 'Sincronizando' : 'Atualizado'}
         </span>
       </div>
@@ -157,11 +147,11 @@ export default function Home() {
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
-        <section className="rounded-lg border border-border bg-white p-4 shadow-panel">
+        <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-base font-semibold tracking-normal text-zinc-950">Volume por hora</h2>
-              <p className="text-sm text-zinc-500">Atendimentos iniciados no dia</p>
+              <h2 className="text-base font-semibold tracking-normal text-card-foreground">Volume por hora</h2>
+              <p className="text-sm text-muted-foreground">Atendimentos iniciados no dia</p>
             </div>
           </div>
           <div className="h-72 w-full">
@@ -202,15 +192,15 @@ export default function Home() {
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full rounded-md bg-zinc-100" />
+              <div className="h-full rounded-md bg-muted" />
             )}
           </div>
         </section>
 
-        <section className="rounded-lg border border-border bg-white p-4 shadow-panel">
+        <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4">
-            <h2 className="text-base font-semibold tracking-normal text-zinc-950">Filas em atencao</h2>
-            <p className="text-sm text-zinc-500">Abertos e espera media</p>
+            <h2 className="text-base font-semibold tracking-normal text-card-foreground">Filas em atencao</h2>
+            <p className="text-sm text-muted-foreground">Abertos e espera media</p>
           </div>
           <div className="h-72 w-full">
             {chartsReady ? (
@@ -252,40 +242,40 @@ export default function Home() {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full rounded-md bg-zinc-100" />
+              <div className="h-full rounded-md bg-muted" />
             )}
           </div>
         </section>
       </div>
 
-      <section className="mt-5 rounded-lg border border-border bg-white shadow-panel">
+      <section className="mt-5 rounded-lg border border-border bg-card shadow-panel">
         <div className="grid gap-5 p-4 xl:grid-cols-[0.95fr_1.05fr]">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="rounded-lg border border-warning/30 bg-warning/10 p-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h2 className="text-base font-semibold tracking-normal text-zinc-950">Qualidade por estrelas</h2>
-                <p className="text-sm text-zinc-600">
+                <h2 className="text-base font-semibold tracking-normal text-card-foreground">Qualidade por estrelas</h2>
+                <p className="text-sm text-muted-foreground">
                   {dashboard.qualitySummary.totalRated} avaliacoes recebidas no periodo
                 </p>
               </div>
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-amber-200 bg-white">
-                <Star className="h-5 w-5 text-amber-500" fill="#f59e0b" aria-hidden="true" />
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-warning/30 bg-card">
+                <Star className="h-5 w-5 text-warning" fill="#f59e0b" aria-hidden="true" />
               </span>
             </div>
 
             <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-semibold tracking-normal text-zinc-950">
+                  <span className="text-4xl font-semibold tracking-normal text-card-foreground">
                     {String(dashboard.qualitySummary.averageRating).replace('.', ',')}
                   </span>
-                  <span className="text-sm font-medium text-zinc-600">de 5</span>
+                  <span className="text-sm font-medium text-muted-foreground">de 5</span>
                 </div>
                 <div className="mt-3">
                   <RatingStars rating={dashboard.qualitySummary.averageRating} />
                 </div>
               </div>
-              <div className="rounded-md border border-amber-200 bg-white px-3 py-2 text-sm text-zinc-700">
+              <div className="rounded-md border border-warning/30 bg-card px-3 py-2 text-sm text-muted-foreground">
                 {dashboard.qualitySummary.aiConfidence}% de confianca nos sinais analisados
               </div>
             </div>
@@ -293,9 +283,9 @@ export default function Home() {
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {dashboard.qualitySignals.map((signal) => (
                 <div key={signal.label} className={`rounded-md border p-3 ${qualitySignalStyles[signal.tone]}`}>
-                  <p className="text-xs font-medium uppercase text-zinc-500">{signal.label}</p>
-                  <p className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">{signal.value}</p>
-                  <p className="mt-1 text-xs text-zinc-500">{signal.detail}</p>
+                  <p className="text-xs font-medium uppercase text-muted-foreground">{signal.label}</p>
+                  <p className="mt-2 text-2xl font-semibold tracking-normal text-card-foreground">{signal.value}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{signal.detail}</p>
                 </div>
               ))}
             </div>
@@ -305,10 +295,10 @@ export default function Home() {
             <div className="rounded-lg border border-border p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold tracking-normal text-zinc-950">Risco operacional</h2>
-                  <p className="text-sm text-zinc-500">Casos que merecem revisao</p>
+                  <h2 className="text-base font-semibold tracking-normal text-card-foreground">Risco operacional</h2>
+                  <p className="text-sm text-muted-foreground">Casos que merecem revisao</p>
                 </div>
-                <AlertTriangle className="h-5 w-5 text-rose-600" aria-hidden="true" />
+                <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden="true" />
               </div>
               <div className="mt-4 space-y-3">
                 {dashboard.operationalRisks.map((risk) => (
@@ -316,30 +306,30 @@ export default function Home() {
                     key={risk.label}
                     className={`flex items-center justify-between gap-3 rounded-md px-3 py-2 ${operationalRiskStyles[risk.tone]}`}
                   >
-                    <span className="text-sm font-medium text-zinc-700">{risk.label}</span>
+                    <span className="text-sm font-medium text-muted-foreground">{risk.label}</span>
                     <span className="text-sm font-semibold">{risk.value}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+            <div className="rounded-lg border border-primary/30 bg-primary/10 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold tracking-normal text-zinc-950">Melhorias sugeridas por IA</h2>
-                  <p className="text-sm text-zinc-600">Fila de ideias para auditoria e gestao</p>
+                  <h2 className="text-base font-semibold tracking-normal text-card-foreground">Melhorias sugeridas por IA</h2>
+                  <p className="text-sm text-muted-foreground">Fila de ideias para auditoria e gestao</p>
                 </div>
-                <BrainCircuit className="h-5 w-5 text-teal-700" aria-hidden="true" />
+                <BrainCircuit className="h-5 w-5 text-primary" aria-hidden="true" />
               </div>
               <ul className="mt-4 space-y-3">
                 {dashboard.improvementSuggestions.map((suggestion) => (
-                  <li key={suggestion} className="flex gap-3 rounded-md border border-teal-100 bg-white p-3">
-                    <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" aria-hidden="true" />
-                    <span className="text-sm text-zinc-700">{suggestion}</span>
+                  <li key={suggestion} className="flex gap-3 rounded-md border border-primary/20 bg-card p-3">
+                    <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                    <span className="text-sm text-muted-foreground">{suggestion}</span>
                   </li>
                 ))}
               </ul>
-              <div className="mt-4 flex items-center gap-2 text-sm font-medium text-teal-800">
+              <div className="mt-4 flex items-center gap-2 text-sm font-medium text-primary">
                 <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                 Sugestoes prontas para validacao da qualidade
               </div>
@@ -349,69 +339,69 @@ export default function Home() {
       </section>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-3">
-        <section className="rounded-lg border border-border bg-white p-4 shadow-panel">
+        <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4">
-            <h2 className="text-base font-semibold tracking-normal text-zinc-950">Atendentes</h2>
-            <p className="text-sm text-zinc-500">Produtividade e resolucao</p>
+            <h2 className="text-base font-semibold tracking-normal text-card-foreground">Atendentes</h2>
+            <p className="text-sm text-muted-foreground">Produtividade e resolucao</p>
           </div>
           <div className="space-y-3">
             {dashboard.agentPerformance.map((agent) => (
               <div key={agent.name} className="rounded-md border border-border p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-medium text-zinc-950">{agent.name}</p>
-                    <p className="text-sm text-zinc-500">{agent.queue}</p>
+                    <p className="font-medium text-card-foreground">{agent.name}</p>
+                    <p className="text-sm text-muted-foreground">{agent.queue}</p>
                   </div>
-                  <span className="rounded-md bg-emerald-50 px-2 py-1 text-sm font-semibold text-emerald-700">
+                  <span className="rounded-md bg-success/10 px-2 py-1 text-sm font-semibold text-success">
                     {agent.rating.toString().replace('.', ',')}
                   </span>
                 </div>
-                <div className="mt-3 flex items-center justify-between text-sm text-zinc-600">
+                <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
                   <span>{agent.tickets} tickets</span>
                   <span>{agent.resolutionRate}% resolucao</span>
                 </div>
-                <div className="mt-2 h-2 rounded-full bg-zinc-100">
-                  <div className="h-2 rounded-full bg-teal-700" style={{ width: `${agent.resolutionRate}%` }} />
+                <div className="mt-2 h-2 rounded-full bg-muted">
+                  <div className="h-2 rounded-full bg-primary" style={{ width: `${agent.resolutionRate}%` }} />
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="rounded-lg border border-border bg-white p-4 shadow-panel">
+        <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4">
-            <h2 className="text-base font-semibold tracking-normal text-zinc-950">Assuntos recorrentes</h2>
-            <p className="text-sm text-zinc-500">Temas mais citados nas conversas</p>
+            <h2 className="text-base font-semibold tracking-normal text-card-foreground">Assuntos recorrentes</h2>
+            <p className="text-sm text-muted-foreground">Temas mais citados nas conversas</p>
           </div>
           <div className="space-y-3">
             {dashboard.recurringTopics.map((topic) => (
               <div key={topic.label}>
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="font-medium text-zinc-700">{topic.label}</span>
-                  <span className="text-zinc-500">{topic.count}</span>
+                  <span className="font-medium text-muted-foreground">{topic.label}</span>
+                  <span className="text-muted-foreground">{topic.count}</span>
                 </div>
-                <div className="mt-2 h-2 rounded-full bg-zinc-100">
-                  <div className="h-2 rounded-full bg-amber-600" style={{ width: `${topic.share}%` }} />
+                <div className="mt-2 h-2 rounded-full bg-muted">
+                  <div className="h-2 rounded-full bg-warning" style={{ width: `${topic.share}%` }} />
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="rounded-lg border border-border bg-white p-4 shadow-panel">
+        <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4">
-            <h2 className="text-base font-semibold tracking-normal text-zinc-950">Funil de resolucao</h2>
-            <p className="text-sm text-zinc-500">Caminho dos atendimentos</p>
+            <h2 className="text-base font-semibold tracking-normal text-card-foreground">Funil de resolucao</h2>
+            <p className="text-sm text-muted-foreground">Caminho dos atendimentos</p>
           </div>
           <div className="space-y-3">
             {dashboard.resolutionFunnel.map((step) => (
-              <div key={step.label} className="rounded-md bg-zinc-50 px-3 py-2">
+              <div key={step.label} className="rounded-md bg-secondary px-3 py-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="font-medium text-zinc-700">{step.label}</span>
-                  <span className="font-semibold text-zinc-950">{step.value}</span>
+                  <span className="font-medium text-muted-foreground">{step.label}</span>
+                  <span className="font-semibold text-card-foreground">{step.value}</span>
                 </div>
-                <div className="mt-2 h-2 rounded-full bg-white">
-                  <div className="h-2 rounded-full bg-zinc-800" style={{ width: `${step.share}%` }} />
+                <div className="mt-2 h-2 rounded-full bg-card">
+                  <div className="h-2 rounded-full bg-primary" style={{ width: `${step.share}%` }} />
                 </div>
               </div>
             ))}
@@ -419,13 +409,13 @@ export default function Home() {
         </section>
       </div>
 
-      <section className="mt-5 rounded-lg border border-border bg-white shadow-panel">
+      <section className="mt-5 rounded-lg border border-border bg-card shadow-panel">
         <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-base font-semibold tracking-normal text-zinc-950">Historico de conversas</h2>
-            <p className="text-sm text-zinc-500">Tickets, mensagens e sinais de auditoria por atendimento</p>
+            <h2 className="text-base font-semibold tracking-normal text-card-foreground">Historico de conversas</h2>
+            <p className="text-sm text-muted-foreground">Tickets, mensagens e sinais de auditoria por atendimento</p>
           </div>
-          <div className="flex w-fit items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-1 text-sm font-medium text-teal-800">
+          <div className="flex w-fit items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
             <History className="h-4 w-4" aria-hidden="true" />
             {ticketsQuery.isFetching || messagesQuery.isFetching ? 'Sincronizando' : 'Dados da API'}
           </div>
@@ -434,8 +424,8 @@ export default function Home() {
         <div className="grid gap-0 lg:grid-cols-[0.9fr_1.4fr]">
           <div className="border-b border-border p-4 lg:border-b-0 lg:border-r">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-zinc-950">{tickets.length} conversas</p>
-              <span className="text-xs font-medium text-zinc-500">mock via API</span>
+              <p className="text-sm font-semibold text-card-foreground">{tickets.length} conversas</p>
+              <span className="text-xs font-medium text-muted-foreground">mock via API</span>
             </div>
             <div className="max-h-[520px] space-y-3 overflow-auto pr-1">
               {tickets.map((ticket) => {
@@ -446,15 +436,15 @@ export default function Home() {
                     key={ticket.id}
                     aria-pressed={selected}
                     className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                      selected ? 'border-teal-300 bg-teal-50' : 'border-border bg-white hover:bg-zinc-50'
+                      selected ? 'border-primary/40 bg-primary/10' : 'border-border bg-card hover:bg-secondary'
                     }`}
                     type="button"
                     onClick={() => setSelectedTicketId(ticket.id)}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-medium text-zinc-950">{ticket.customerName}</p>
-                        <p className="truncate text-sm text-zinc-500">{ticket.subject}</p>
+                        <p className="font-medium text-card-foreground">{ticket.customerName}</p>
+                        <p className="truncate text-sm text-muted-foreground">{ticket.subject}</p>
                       </div>
                       <span
                         className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
@@ -464,7 +454,7 @@ export default function Home() {
                         {ticket.status}
                       </span>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-zinc-500">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                       <span>{ticket.queue}</span>
                       <span className="text-right">{formatDateTime(ticket.lastMessageAt)}</span>
                       <span>{ticket.agent}</span>
@@ -479,34 +469,34 @@ export default function Home() {
           <div className="min-w-0 p-4">
             {selectedTicket && conversation ? (
               <>
-                <div className="rounded-lg border border-border bg-zinc-50 p-4">
+                <div className="rounded-lg border border-border bg-secondary p-4">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
-                      <p className="text-sm font-medium text-zinc-500">{selectedTicket.id}</p>
-                      <h3 className="text-lg font-semibold tracking-normal text-zinc-950">
+                      <p className="text-sm font-medium text-muted-foreground">{selectedTicket.id}</p>
+                      <h3 className="text-lg font-semibold tracking-normal text-card-foreground">
                         {selectedTicket.customerName}
                       </h3>
-                      <p className="mt-1 text-sm text-zinc-600">{selectedTicket.summary}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{selectedTicket.summary}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-sm font-medium text-amber-800">
+                      <span className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-sm font-medium text-warning">
                         {selectedTicket.rating} estrelas
                       </span>
-                      <span className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm font-medium text-zinc-700">
+                      <span className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-muted-foreground">
                         {selectedTicket.sentiment}
                       </span>
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
                     {selectedTicket.tags.map((tag) => (
-                      <span key={tag} className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600">
+                      <span key={tag} className="rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground">
                         {tag}
                       </span>
                     ))}
                   </div>
                 </div>
 
-                <div className="mt-4 max-h-[560px] space-y-3 overflow-auto rounded-lg border border-border bg-white p-4">
+                <div className="mt-4 max-h-[560px] space-y-3 overflow-auto rounded-lg border border-border bg-card p-4">
                   {conversation.data.map((message) => (
                     <article
                       key={message.id}
@@ -514,10 +504,10 @@ export default function Home() {
                     >
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                         <div>
-                          <p className="text-sm font-semibold text-zinc-950">{message.senderName}</p>
-                          <p className="text-xs text-zinc-500">{message.senderRole}</p>
+                          <p className="text-sm font-semibold text-card-foreground">{message.senderName}</p>
+                          <p className="text-xs text-muted-foreground">{message.senderRole}</p>
                         </div>
-                        <time className="text-xs text-zinc-500">{formatDateTime(message.sentAt)}</time>
+                        <time className="text-xs text-muted-foreground">{formatDateTime(message.sentAt)}</time>
                       </div>
                       <p className="text-sm leading-6">{message.content}</p>
                     </article>
@@ -525,7 +515,7 @@ export default function Home() {
                 </div>
               </>
             ) : (
-              <div className="rounded-lg border border-border bg-zinc-50 p-6 text-sm text-zinc-600">
+              <div className="rounded-lg border border-border bg-secondary p-6 text-sm text-muted-foreground">
                 Nenhuma conversa selecionada.
               </div>
             )}

@@ -2,20 +2,23 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import {
   BarChart3,
   Bot,
   ClipboardCheck,
   LayoutDashboard,
+  LogIn,
   MessageSquareText,
-  Moon,
+  RefreshCw,
   Settings,
-  Sun,
   UsersRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { UserMenu } from '@/components/user-menu';
+import { useAuth } from '@/lib/auth';
 
 const navItems = [
   { label: 'Visao Geral', href: '/', icon: LayoutDashboard },
@@ -32,17 +35,7 @@ type DashboardShellProps = {
 
 export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname();
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
-
-  useEffect(() => {
-    const storedTheme = window.localStorage.getItem('atendebi-theme');
-    setTheme(storedTheme === 'dark' ? 'dark' : 'light');
-  }, []);
-
-  useEffect(() => {
-    document.body.classList.toggle('dark', theme === 'dark');
-    window.localStorage.setItem('atendebi-theme', theme);
-  }, [theme]);
+  const { isAuthenticated, isReady } = useAuth();
 
   const activeLabel =
     navItems.find((item) =>
@@ -52,13 +45,13 @@ export function DashboardShell({ children }: DashboardShellProps) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="flex min-h-screen flex-col md:flex-row">
-        <aside className="border-b border-border bg-white md:w-64 md:border-b-0 md:border-r">
+        <aside className="border-b border-border bg-card md:w-64 md:border-b-0 md:border-r">
           <div className="flex h-16 items-center justify-between px-5 md:h-20">
             <div>
-              <p className="text-base font-semibold tracking-normal text-zinc-950">AtendeBI</p>
-              <p className="text-xs font-medium text-zinc-500">Operacao conversacional</p>
+              <p className="text-base font-semibold tracking-normal text-card-foreground">AtendeBI</p>
+              <p className="text-xs font-medium text-muted-foreground">Operacao conversacional</p>
             </div>
-            <Bot className="h-5 w-5 text-teal-700" aria-hidden="true" />
+            <Bot className="h-5 w-5 text-primary" aria-hidden="true" />
           </div>
           <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:block md:space-y-1 md:overflow-visible md:pb-0">
             {navItems.map((item) => {
@@ -68,8 +61,8 @@ export function DashboardShell({ children }: DashboardShellProps) {
                   key={item.label}
                   href={item.href}
                   className={cn(
-                    'flex h-10 shrink-0 items-center gap-3 rounded-md px-3 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-950 md:w-full',
-                    isActive && 'bg-teal-50 text-teal-800',
+                    'flex h-10 shrink-0 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:w-full',
+                    isActive && 'bg-primary/10 text-primary',
                   )}
                 >
                   <item.icon className="h-4 w-4" aria-hidden="true" />
@@ -81,10 +74,10 @@ export function DashboardShell({ children }: DashboardShellProps) {
         </aside>
 
         <div className="min-w-0 flex-1">
-          <header className="flex min-h-16 flex-col justify-center gap-3 border-b border-border bg-white px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6">
+          <header className="flex min-h-16 flex-col justify-center gap-3 border-b border-border bg-card px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6">
             <div>
-              <h1 className="text-xl font-semibold tracking-normal text-zinc-950">{activeLabel}</h1>
-              <p className="text-sm text-zinc-500">
+              <h1 className="text-xl font-semibold tracking-normal text-card-foreground">{activeLabel}</h1>
+              <p className="text-sm text-muted-foreground">
                 Hoje, {new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date())}
               </p>
             </div>
@@ -92,14 +85,21 @@ export function DashboardShell({ children }: DashboardShellProps) {
               <Button variant="outline" size="sm">
                 Ultimas 24h
               </Button>
-              <Button size="sm">Atualizar</Button>
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/login">Login</Link>
+              <Button size="sm" type="button">
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Atualizar</span>
               </Button>
-              <Button variant="outline" size="sm" type="button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-                {theme === 'dark' ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
-                <span>{theme === 'dark' ? 'Claro' : 'Escuro'}</span>
-              </Button>
+              <ThemeToggle />
+              {isReady && isAuthenticated ? (
+                <UserMenu />
+              ) : isReady ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/login">
+                    <LogIn className="h-4 w-4" aria-hidden="true" />
+                    Entrar com Microsoft
+                  </Link>
+                </Button>
+              ) : null}
             </div>
           </header>
           <main className="mx-auto w-full max-w-7xl px-4 py-5 md:px-6">{children}</main>

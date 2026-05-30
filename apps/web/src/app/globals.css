@@ -3,71 +3,61 @@
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 98%;
-  --foreground: 240 10% 10%;
+  --background: 210 24% 98%;
+  --foreground: 222 47% 11%;
   --card: 0 0% 100%;
-  --card-foreground: 240 10% 10%;
-  --muted: 240 5% 96%;
-  --muted-foreground: 240 4% 46%;
-  --border: 240 6% 90%;
-  --primary: 173 80% 28%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 174 78% 29%;
   --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 38 92% 95%;
+  --accent-foreground: 30 92% 28%;
+  --destructive: 350 84% 54%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 174 78% 34%;
+  --success: 152 69% 31%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 222 47% 11%;
+  --info: 217 91% 60%;
+  --info-foreground: 0 0% 100%;
+  --shadow-panel: 0 1px 2px rgba(15, 23, 42, 0.06), 0 16px 48px rgba(15, 23, 42, 0.04);
 }
 
-body.dark {
-  --background: 222 8% 10%;
-  --foreground: 210 16% 96%;
-  --card: 222 12% 16%;
-  --card-foreground: 210 16% 96%;
-  --muted: 218 14% 16%;
-  --muted-foreground: 210 20% 76%;
-  --border: 222 12% 28%;
-  --primary: 173 80% 50%;
-  --primary-foreground: 0 0% 100%;
-}
-
-body.dark .bg-white {
-  background-color: hsl(var(--card)) !important;
-}
-
-body.dark .bg-zinc-50 {
-  background-color: hsl(var(--muted)) !important;
-}
-
-body.dark .bg-zinc-100,
-body.dark .hover\:bg-zinc-100:hover {
-  background-color: hsl(var(--muted)) !important;
-}
-
-body.dark .bg-teal-50 {
-  background-color: rgba(20, 184, 166, 0.14) !important;
-}
-
-body.dark .text-zinc-950,
-body.dark .text-zinc-800,
-body.dark .text-zinc-700,
-body.dark .text-zinc-600,
-body.dark .text-zinc-500 {
-  color: hsl(var(--foreground)) !important;
-}
-
-body.dark .border-zinc-100,
-body.dark .border-zinc-200,
-body.dark .border-zinc-300,
-body.dark .border-zinc-400 {
-  border-color: hsl(var(--border)) !important;
-}
-
-body.dark .border-teal-200 {
-  border-color: rgba(20, 184, 166, 0.3) !important;
-}
-
-body.dark .text-teal-800 {
-  color: #7dd3c8 !important;
-}
-
-body.dark .bg-teal-50 {
-  background-color: rgba(20, 184, 166, 0.12) !important;
+.dark {
+  --background: 222 47% 7%;
+  --foreground: 213 31% 91%;
+  --card: 222 39% 11%;
+  --card-foreground: 213 31% 91%;
+  --popover: 222 39% 10%;
+  --popover-foreground: 213 31% 91%;
+  --primary: 174 72% 48%;
+  --primary-foreground: 222 47% 8%;
+  --secondary: 217 32% 17%;
+  --secondary-foreground: 213 31% 91%;
+  --muted: 217 32% 17%;
+  --muted-foreground: 215 20% 68%;
+  --accent: 35 78% 18%;
+  --accent-foreground: 42 96% 82%;
+  --destructive: 350 76% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 217 27% 22%;
+  --input: 217 27% 22%;
+  --ring: 174 72% 48%;
+  --success: 151 66% 42%;
+  --success-foreground: 222 47% 8%;
+  --warning: 42 96% 62%;
+  --warning-foreground: 222 47% 8%;
+  --info: 199 89% 64%;
+  --info-foreground: 222 47% 8%;
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.22), 0 18px 52px rgba(0, 0, 0, 0.24);
 }
 
 * {
@@ -82,5 +72,11 @@ body {
   margin: 0;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  transition: background 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.22);
 }
