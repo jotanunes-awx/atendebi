@@ -2,12 +2,16 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { AgentsModule } from './agents/agents.module';
+import { BotModule } from './bot/bot.module';
 import { AuthModule } from './common/auth/auth.module';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { TenantContextModule } from './common/tenant/tenant-context.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
+import { QualityModule } from './quality/quality.module';
 import { QueueModule } from './queues/queue.module';
+import { SalesModule } from './sales/sales.module';
 import { SupportQueuesModule } from './support-queues/support-queues.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
@@ -43,6 +47,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     }),
     AuthModule,
     PrismaModule,
+    TenantContextModule,
     QueueModule,
     HealthModule,
     WebhooksModule,
@@ -51,6 +56,9 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     ConversationsModule,
     SupportQueuesModule,
     AgentsModule,
+    QualityModule,
+    BotModule,
+    SalesModule,
   ],
 })
 export class AppModule {}

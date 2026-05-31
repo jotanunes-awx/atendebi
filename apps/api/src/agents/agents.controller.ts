@@ -1,9 +1,15 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { MockAuthenticatedUser } from '../common/auth/mock-auth.guard';
 import { PERMISSION_GROUPS } from '../common/auth/app-roles';
 import { MockAuthGuard } from '../common/auth/mock-auth.guard';
 import { Roles } from '../common/auth/roles.decorator';
 import { RolesGuard } from '../common/auth/roles.guard';
+import { AgentsService } from './agents.service';
+
+type RequestWithUser = {
+  user?: MockAuthenticatedUser;
+};
 
 @ApiTags('Agents')
 @ApiBearerAuth()
@@ -11,15 +17,17 @@ import { RolesGuard } from '../common/auth/roles.guard';
 @Roles(...PERMISSION_GROUPS.OPERATIONS_READ)
 @Controller('agents')
 export class AgentsController {
+  constructor(private readonly agentsService: AgentsService) {}
+
   @Get()
   @ApiOperation({ summary: 'Lists agents' })
-  findAll() {
-    return {
-      data: [
-        { id: 'agent-1', name: 'Ana Lima', queue: 'Suporte', ticketsHandled: 38, averageRating: 4.8 },
-        { id: 'agent-2', name: 'Carlos Souza', queue: 'Financeiro', ticketsHandled: 24, averageRating: 3.9 },
-        { id: 'agent-3', name: 'Beatriz Rocha', queue: 'Comercial', ticketsHandled: 31, averageRating: 4.5 },
-      ],
-    };
+  findAll(@Req() request: RequestWithUser) {
+    return this.agentsService.findAll(request.user?.tenantId);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Returns agent details' })
+  findOne(@Req() request: RequestWithUser, @Param('id') id: string) {
+    return this.agentsService.findOne(request.user?.tenantId, id);
   }
 }

@@ -42,7 +42,10 @@ copy apps\web\.env.example apps\web\.env.local
 ```bash
 npm run db:generate
 npm run db:migrate
+npm run db:seed
 ```
+
+O seed cria o tenant `local-tenant`, o usuario admin mockado, roles, integracao BLiP demo, filas, atendentes, contatos, tickets, mensagens, ratings, tags e analises fake de IA.
 
 5. Rode API e frontend:
 
@@ -62,11 +65,17 @@ npm run dev
 - `GET /health`
 - `POST /webhooks/blip/:tenantKey`
 - `GET /dashboard/overview`
+- `GET /dashboard/drilldown?type=Atendimentos`
 - `GET /tickets`
 - `GET /tickets/:id`
 - `GET /conversations/:ticketId/messages`
 - `GET /queues`
+- `GET /queues/:id`
 - `GET /agents`
+- `GET /agents/:id`
+- `GET /quality/overview`
+- `GET /bot/overview`
+- `GET /sales/overview`
 
 ## Permissoes no MVP
 
@@ -76,6 +85,22 @@ A autenticacao real com Microsoft Entra ID ainda sera acoplada em fase futura. N
 curl http://localhost:3333/dashboard/overview ^
   -H "x-tenant-id: local-tenant" ^
   -H "x-user-id: local-user" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+```
+
+Exemplos uteis depois do seed:
+
+```bash
+curl http://localhost:3333/tickets ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+
+curl http://localhost:3333/conversations/ticket-demo-001/messages ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+
+curl http://localhost:3333/quality/overview ^
+  -H "x-tenant-id: local-tenant" ^
   -H "x-roles: ATENDEBI_ADMIN"
 ```
 
@@ -102,6 +127,7 @@ Regras iniciais:
 - Webhooks do BLiP sao salvos em `raw_events` com JSON bruto.
 - O webhook responde rapido e envia processamento para fila.
 - O banco ja nasce multitenant, com `tenant_id` nas tabelas principais.
+- O AtendeBI guarda historico proprio em PostgreSQL para BI e auditoria, sem depender da retencao curta da plataforma origem.
 - Autenticacao real via Microsoft Entra ID sera acoplada depois; por enquanto existe um guard mockado para preparar os endpoints protegidos.
 - O modulo de IA fica previsto no banco, mas nao e executado no webhook nem no MVP inicial.
 
@@ -109,5 +135,5 @@ Regras iniciais:
 
 1. Conectar autenticacao real com Microsoft Entra ID.
 2. Implementar normalizacao dos eventos BLiP em tickets, mensagens, contatos, filas e atendentes.
-3. Trocar dados mockados do frontend por chamadas reais usando TanStack Query.
+3. Ligar as paginas internas do frontend aos endpoints reais com filtros por periodo, fila, canal, grupo, atendente, nota e sentimento.
 4. Adicionar testes automatizados para webhook, idempotencia e permissoes.

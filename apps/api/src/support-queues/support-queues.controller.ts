@@ -1,9 +1,15 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { MockAuthenticatedUser } from '../common/auth/mock-auth.guard';
 import { PERMISSION_GROUPS } from '../common/auth/app-roles';
 import { MockAuthGuard } from '../common/auth/mock-auth.guard';
 import { Roles } from '../common/auth/roles.decorator';
 import { RolesGuard } from '../common/auth/roles.guard';
+import { SupportQueuesService } from './support-queues.service';
+
+type RequestWithUser = {
+  user?: MockAuthenticatedUser;
+};
 
 @ApiTags('Queues')
 @ApiBearerAuth()
@@ -11,15 +17,17 @@ import { RolesGuard } from '../common/auth/roles.guard';
 @Roles(...PERMISSION_GROUPS.OPERATIONS_READ)
 @Controller('queues')
 export class SupportQueuesController {
+  constructor(private readonly supportQueuesService: SupportQueuesService) {}
+
   @Get()
   @ApiOperation({ summary: 'Lists support queues' })
-  findAll() {
-    return {
-      data: [
-        { id: 'queue-1', name: 'Suporte', openTickets: 18, averageWaitMinutes: 7.2 },
-        { id: 'queue-2', name: 'Comercial', openTickets: 11, averageWaitMinutes: 4.1 },
-        { id: 'queue-3', name: 'Financeiro', openTickets: 13, averageWaitMinutes: 9.8 },
-      ],
-    };
+  findAll(@Req() request: RequestWithUser) {
+    return this.supportQueuesService.findAll(request.user?.tenantId);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Returns support queue details' })
+  findOne(@Req() request: RequestWithUser, @Param('id') id: string) {
+    return this.supportQueuesService.findOne(request.user?.tenantId, id);
   }
 }

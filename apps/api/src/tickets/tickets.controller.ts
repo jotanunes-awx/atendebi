@@ -1,10 +1,15 @@
-import { Controller, Get, NotFoundException, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { MockAuthenticatedUser } from '../common/auth/mock-auth.guard';
 import { PERMISSION_GROUPS } from '../common/auth/app-roles';
 import { MockAuthGuard } from '../common/auth/mock-auth.guard';
 import { Roles } from '../common/auth/roles.decorator';
 import { RolesGuard } from '../common/auth/roles.guard';
-import { conversationTickets, findConversationTicket } from '../conversations/mock-conversation-history';
+import { TicketFilters, TicketsService } from './tickets.service';
+
+type RequestWithUser = {
+  user?: MockAuthenticatedUser;
+};
 
 @ApiTags('Tickets')
 @ApiBearerAuth()
@@ -12,21 +17,17 @@ import { conversationTickets, findConversationTicket } from '../conversations/mo
 @Roles(...PERMISSION_GROUPS.CONVERSATION_READ)
 @Controller('tickets')
 export class TicketsController {
+  constructor(private readonly ticketsService: TicketsService) {}
+
   @Get()
   @ApiOperation({ summary: 'Lists tickets' })
-  findAll() {
-    return { data: conversationTickets };
+  findAll(@Req() request: RequestWithUser, @Query() filters: TicketFilters) {
+    return this.ticketsService.findAll(request.user?.tenantId, filters);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Returns ticket details' })
-  findOne(@Param('id') id: string) {
-    const ticket = findConversationTicket(id);
-
-    if (!ticket) {
-      throw new NotFoundException('Ticket not found');
-    }
-
-    return ticket;
+  findOne(@Req() request: RequestWithUser, @Param('id') id: string) {
+    return this.ticketsService.findOne(request.user?.tenantId, id);
   }
 }

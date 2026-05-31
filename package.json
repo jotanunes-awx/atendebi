@@ -14,6 +14,7 @@
     "typecheck": "npm run typecheck -ws --if-present",
     "db:generate": "npm run db:generate -w @atendebi/api",
     "db:migrate": "npm run db:migrate -w @atendebi/api",
+    "db:seed": "npm run db:seed -w @atendebi/api",
     "db:studio": "npm run db:studio -w @atendebi/api"
   },
   "devDependencies": {

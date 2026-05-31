@@ -121,7 +121,7 @@ export default function Home() {
 
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'overview'],
-    queryFn: getDashboardOverview,
+    queryFn: () => getDashboardOverview(),
   });
 
   useEffect(() => {

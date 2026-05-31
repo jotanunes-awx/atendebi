@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {
