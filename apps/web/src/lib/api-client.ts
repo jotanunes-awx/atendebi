@@ -207,6 +207,49 @@ export type SalesOverview = {
   tickets: TicketHistoryItem[];
 };
 
+export type IntegrationProvider = 'BLIP' | 'GLPI' | 'TEAMS_PHONE';
+
+export type IntegrationSummary = {
+  provider: IntegrationProvider;
+  label: string;
+  name: string;
+  category: string;
+  description: string;
+  status: 'connected' | 'ready' | 'pending';
+  statusLabel: string;
+  configured: boolean;
+  active: boolean;
+  tenantKey?: string;
+  webhookUrl?: string;
+  rawEvents: number;
+  lastEventAt: string | null;
+  missingSettings: string[];
+  requiredSettings: string[];
+  nextAction: string;
+  capabilities: string[];
+  settingsPreview: Record<string, unknown>;
+};
+
+export type IntegrationTestResult = {
+  provider: IntegrationProvider;
+  checkedAt: string;
+  ok: boolean;
+  status: string;
+  message: string;
+  details: Array<{
+    item: string;
+    status: string;
+  }>;
+};
+
+export type IntegrationSyncResult = {
+  provider: IntegrationProvider;
+  accepted: boolean;
+  status: string;
+  message: string;
+  rawEventId?: string;
+};
+
 export type SettingsOverview = {
   source: 'api' | 'empty';
   tenant: {
@@ -225,6 +268,7 @@ export type SettingsOverview = {
     rawEvents: number;
     webhookSecretRequired: boolean;
   } | null;
+  integrations: IntegrationSummary[];
   security: {
     authMode: string;
     tokenValidation: string;
@@ -314,4 +358,42 @@ export async function getSettingsOverview(): Promise<SettingsOverview> {
   }
 
   return response.json();
+}
+
+export async function getIntegrations(): Promise<ApiListResponse<IntegrationSummary>> {
+  const response = await fetch(`${apiBaseUrl}/integrations`, {
+    headers: mockHeaders,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Integrations API returned ${response.status}`);
+  }
+
+  return response.json() as Promise<ApiListResponse<IntegrationSummary>>;
+}
+
+export async function testIntegration(provider: IntegrationProvider): Promise<IntegrationTestResult> {
+  const response = await fetch(`${apiBaseUrl}/integrations/${provider}/test`, {
+    method: 'POST',
+    headers: mockHeaders,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Integration test API returned ${response.status}`);
+  }
+
+  return response.json() as Promise<IntegrationTestResult>;
+}
+
+export async function syncIntegration(provider: IntegrationProvider): Promise<IntegrationSyncResult> {
+  const response = await fetch(`${apiBaseUrl}/integrations/${provider}/sync`, {
+    method: 'POST',
+    headers: mockHeaders,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Integration sync API returned ${response.status}`);
+  }
+
+  return response.json() as Promise<IntegrationSyncResult>;
 }

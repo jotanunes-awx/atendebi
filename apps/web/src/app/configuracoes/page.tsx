@@ -25,12 +25,19 @@ import {
   SecurityTab,
 } from '@/features/settings/settings-tabs';
 import { demoIntegrationStatus } from '@/lib/demo-data';
-import { getSettingsOverview } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
+import {
+  getSettingsOverview,
+  syncIntegration,
+  testIntegration,
+  type IntegrationProvider,
+  type IntegrationSyncResult,
+  type IntegrationTestResult,
+} from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
 const tabs: Array<{ id: ConfigTab; label: string; icon: LucideIcon }> = [
-  { id: 'integracao', label: 'Integracao BLiP', icon: PlugZap },
+  { id: 'integracao', label: 'Integracoes', icon: PlugZap },
   { id: 'seguranca', label: 'Seguranca', icon: ShieldCheck },
   { id: 'perfis', label: 'Usuarios e perfis', icon: UsersRound },
   { id: 'retencao', label: 'Retencao', icon: Archive },
@@ -41,7 +48,9 @@ export default function ConfiguracoesPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<ConfigTab>('integracao');
   const [copied, setCopied] = useState<string | null>(null);
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok'>('idle');
+  const [testingProvider, setTestingProvider] = useState<IntegrationProvider | null>(null);
+  const [syncingProvider, setSyncingProvider] = useState<IntegrationProvider | null>(null);
+  const [integrationResults, setIntegrationResults] = useState<Record<string, IntegrationTestResult | IntegrationSyncResult>>({});
   const [saved, setSaved] = useState(false);
   const [webhookSecretRequired, setWebhookSecretRequired] = useState(true);
   const [structuredAudit, setStructuredAudit] = useState(true);
@@ -55,6 +64,10 @@ export default function ConfiguracoesPage() {
 
   const settings = settingsQuery.data;
   const tenantName = settings?.tenant?.name ?? user?.tenant ?? demoIntegrationStatus.tenant;
+  const integrations = settings?.integrations ?? [];
+  const blipIntegration = integrations.find((integration) => integration.provider === 'BLIP');
+  const glpiIntegration = integrations.find((integration) => integration.provider === 'GLPI');
+  const teamsIntegration = integrations.find((integration) => integration.provider === 'TEAMS_PHONE');
   const retentionDays = Number(retentionMonths) * 30;
   const estimatedStorage = useMemo(() => Math.round((retentionDays / 30) * 4.8), [retentionDays]);
 
@@ -64,9 +77,47 @@ export default function ConfiguracoesPage() {
     window.setTimeout(() => setCopied(null), 1500);
   }
 
-  function testWebhook() {
-    setTestStatus('testing');
-    window.setTimeout(() => setTestStatus('ok'), 900);
+  async function handleTestIntegration(provider: IntegrationProvider) {
+    try {
+      setTestingProvider(provider);
+      const result = await testIntegration(provider);
+      setIntegrationResults((current) => ({ ...current, [provider]: result }));
+    } catch (error) {
+      setIntegrationResults((current) => ({
+        ...current,
+        [provider]: {
+          provider,
+          checkedAt: new Date().toISOString(),
+          ok: false,
+          status: 'api_error',
+          message: error instanceof Error ? error.message : 'Nao foi possivel testar a integracao.',
+          details: [],
+        },
+      }));
+    } finally {
+      setTestingProvider(null);
+    }
+  }
+
+  async function handleSyncIntegration(provider: IntegrationProvider) {
+    try {
+      setSyncingProvider(provider);
+      const result = await syncIntegration(provider);
+      setIntegrationResults((current) => ({ ...current, [provider]: result }));
+      await settingsQuery.refetch();
+    } catch (error) {
+      setIntegrationResults((current) => ({
+        ...current,
+        [provider]: {
+          provider,
+          accepted: false,
+          status: 'api_error',
+          message: error instanceof Error ? error.message : 'Nao foi possivel registrar o sync dry-run.',
+        },
+      }));
+    } finally {
+      setSyncingProvider(null);
+    }
   }
 
   function saveSettings() {
@@ -83,7 +134,7 @@ export default function ConfiguracoesPage() {
               <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Administracao</p>
               <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Configuracoes</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Centro de controle do tenant, integracao BLiP, webhook, retencao historica, seguranca, perfis e LGPD.
+                Centro de controle do tenant, integracoes BLiP, GLPI e Teams/PABX, webhook, retencao historica, seguranca, perfis e LGPD.
               </p>
               <p className="mt-4 text-xs font-semibold text-primary">
                 Fonte: {settingsQuery.isError ? 'Usando fallback local' : settings ? 'Conectado a API real' : 'Carregando API'}
@@ -101,11 +152,30 @@ export default function ConfiguracoesPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <HealthCard icon={ShieldCheck} label="Tenant" value={tenantName} detail="local-tenant ativo" tone="success" />
-            <HealthCard icon={PlugZap} label="BLiP" value={settings?.integration?.status ?? demoIntegrationStatus.status} detail="Eventos recebidos por webhook" tone="success" />
+            <HealthCard
+              icon={PlugZap}
+              label="BLiP"
+              value={blipIntegration?.statusLabel ?? settings?.integration?.status ?? demoIntegrationStatus.status}
+              detail="Eventos recebidos por webhook"
+              tone={blipIntegration?.configured === false ? 'warning' : 'success'}
+            />
+            <HealthCard
+              icon={Archive}
+              label="GLPI"
+              value={glpiIntegration?.statusLabel ?? 'Pendente configuracao'}
+              detail="Chamados, SLA e backlog"
+              tone={glpiIntegration?.configured ? 'success' : 'warning'}
+            />
             <HealthCard icon={Archive} label="Historico" value={settings?.retention?.retentionPolicy ?? `${retentionMonths} meses`} detail="Banco proprio do AtendeBI" tone="info" />
-            <HealthCard icon={LockKeyhole} label="Seguranca" value="Mock Entra ID" detail="Token BLiP fora do frontend" tone="warning" />
+            <HealthCard
+              icon={LockKeyhole}
+              label="Teams/PABX"
+              value={teamsIntegration?.statusLabel ?? 'Pendente configuracao'}
+              detail="Graph Call Records"
+              tone={teamsIntegration?.configured ? 'success' : 'warning'}
+            />
           </div>
         </div>
 
@@ -136,11 +206,14 @@ export default function ConfiguracoesPage() {
         {activeTab === 'integracao' ? (
           <IntegrationTab
             copied={copied}
-            testStatus={testStatus}
             webhookSecretRequired={settings?.integration?.webhookSecretRequired ?? webhookSecretRequired}
             settings={settings}
+            testingProvider={testingProvider}
+            syncingProvider={syncingProvider}
+            integrationResults={integrationResults}
             onCopy={copyValue}
-            onTestWebhook={testWebhook}
+            onTestIntegration={handleTestIntegration}
+            onSyncIntegration={handleSyncIntegration}
             onToggleSecret={() => setWebhookSecretRequired((value) => !value)}
           />
         ) : null}

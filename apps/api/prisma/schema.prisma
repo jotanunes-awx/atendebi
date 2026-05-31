@@ -20,6 +20,8 @@ enum UserStatus {
 
 enum IntegrationProvider {
   BLIP
+  GLPI
+  TEAMS_PHONE
 }
 
 enum RawEventStatus {

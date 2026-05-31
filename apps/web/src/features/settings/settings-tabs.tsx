@@ -1,6 +1,8 @@
 import {
+  AlertTriangle,
   Archive,
   Bell,
+  CheckCircle2,
   ClipboardCheck,
   Copy,
   Database,
@@ -9,8 +11,10 @@ import {
   KeyRound,
   Layers3,
   LockKeyhole,
+  PhoneCall,
   PlugZap,
   RefreshCw,
+  ServerCog,
   ShieldCheck,
   SlidersHorizontal,
   TestTube2,
@@ -18,10 +22,17 @@ import {
   UsersRound,
   Webhook,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { Button } from '@/components/ui/button';
 import { demoConversationGroups, demoIntegrationStatus } from '@/lib/demo-data';
-import type { SettingsOverview } from '@/lib/api-client';
+import type {
+  IntegrationProvider,
+  IntegrationSummary,
+  IntegrationSyncResult,
+  IntegrationTestResult,
+  SettingsOverview,
+} from '@/lib/api-client';
 import {
   ComplianceRow,
   ConfigField,
@@ -72,102 +83,426 @@ const permissionColumns: DataTableColumn<PermissionRow>[] = [
 
 export function IntegrationTab({
   copied,
-  testStatus,
   webhookSecretRequired,
   settings,
+  testingProvider,
+  syncingProvider,
+  integrationResults,
   onCopy,
-  onTestWebhook,
+  onTestIntegration,
+  onSyncIntegration,
   onToggleSecret,
 }: {
   copied: string | null;
-  testStatus: 'idle' | 'testing' | 'ok';
   webhookSecretRequired: boolean;
   settings?: SettingsOverview;
+  testingProvider: IntegrationProvider | null;
+  syncingProvider: IntegrationProvider | null;
+  integrationResults: Record<string, IntegrationTestResult | IntegrationSyncResult>;
   onCopy: CopyHandler;
-  onTestWebhook: () => void;
+  onTestIntegration: (provider: IntegrationProvider) => void | Promise<void>;
+  onSyncIntegration: (provider: IntegrationProvider) => void | Promise<void>;
   onToggleSecret: () => void;
 }) {
   const integration = settings?.integration;
   const webhookUrl = integration?.webhookUrl ?? demoIntegrationStatus.webhookUrl;
+  const integrations = settings?.integrations?.length ? settings.integrations : buildFallbackIntegrations(webhookUrl, integration);
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+    <div className="space-y-5">
       <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
         <SectionTitle
           icon={PlugZap}
-          title="Integracao BLiP"
-          description="Configuracao operacional para receber eventos sem expor token ou chave no frontend."
+          title="Fontes de dados do atendimento"
+          description="O AtendeBI pode receber conversas do BLiP, chamados do GLPI e telefonia do Teams/PABX sem expor segredos no frontend."
         />
 
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <ConfigField label="Provider" value={integration?.provider ?? demoIntegrationStatus.provider} />
-          <ConfigField label="Nome da integracao" value={integration?.name ?? demoIntegrationStatus.name} />
-          <ConfigField label="Tenant key" value={integration?.tenantKey ?? 'local-tenant'} />
-          <ConfigField
-            label="Ultimo evento"
-            value={new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(
-              new Date(integration?.lastEventAt ?? demoIntegrationStatus.lastSyncAt),
-            )}
-          />
-          <ConfigField
-            label="Eventos recebidos"
-            value={`${integration?.rawEvents ?? 0} raw_events salvos, mensagens/tickets/contatos normalizados quando possivel`}
-            className="md:col-span-2"
-          />
+        <div className="mt-5 grid gap-4 xl:grid-cols-3">
+          {integrations.map((item) => (
+            <IntegrationProviderCard
+              key={item.provider}
+              integration={item}
+              copied={copied}
+              result={integrationResults[item.provider]}
+              testing={testingProvider === item.provider}
+              syncing={syncingProvider === item.provider}
+              onCopy={onCopy}
+              onTestIntegration={onTestIntegration}
+              onSyncIntegration={onSyncIntegration}
+            />
+          ))}
         </div>
 
-        <div className="mt-5 rounded-lg border border-border bg-secondary p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Webhook URL</p>
-              <code className="mt-2 block break-all text-sm text-card-foreground">{webhookUrl}</code>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" type="button" onClick={() => onCopy('webhook', webhookUrl)}>
-                <Copy className="h-4 w-4" aria-hidden="true" />
-                {copied === 'webhook' ? 'Copiado' : 'Copiar URL'}
-              </Button>
-              <Button type="button" onClick={onTestWebhook}>
-                <TestTube2 className="h-4 w-4" aria-hidden="true" />
-                {testStatus === 'testing' ? 'Testando' : testStatus === 'ok' ? 'Webhook OK' : 'Testar'}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <ToggleRow
-            icon={KeyRound}
-            label="Exigir secret no webhook"
-            description="Usa o header x-atendebi-webhook-secret quando estiver habilitado."
-            checked={webhookSecretRequired}
-            onToggle={onToggleSecret}
-          />
-          <ToggleRow
-            icon={Database}
-            label="Salvar evento bruto"
-            description="Todo payload recebido permanece em raw_events para auditoria."
-            checked
-            locked
-          />
-        </div>
       </section>
 
-      <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+        <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+          <SectionTitle
+            icon={Webhook}
+            title="Pipeline de entrada"
+            description="Cada origem entra por um conector, mas tudo vira historico auditavel no banco do AtendeBI."
+          />
+          <div className="mt-5 space-y-3">
+            <PipelineStep number="1" title="Receber ou sincronizar" description="BLiP entra por webhook; GLPI e Teams entram por sincronismo controlado no backend." />
+            <PipelineStep number="2" title="Salvar bruto" description="Todo evento relevante permanece em raw_events para auditoria, rastreio e reprocessamento." />
+            <PipelineStep number="3" title="Normalizar" description="Conectores transformam origem em Contact, Ticket, Message, fila, atendente e metadados." />
+            <PipelineStep number="4" title="Disponibilizar BI" description="Dashboard usa banco proprio, nao chama BLiP, GLPI ou Graph direto no frontend." />
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+          <SectionTitle icon={ShieldCheck} title="Seguranca dos conectores" description="Pontos que precisam ficar prontos antes de ligar dados reais em producao." />
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            <ToggleRow
+              icon={KeyRound}
+              label="Exigir secret no webhook BLiP"
+              description="Usa o header x-atendebi-webhook-secret quando estiver habilitado."
+              checked={webhookSecretRequired}
+              onToggle={onToggleSecret}
+            />
+            <ToggleRow
+              icon={Database}
+              label="Salvar evento bruto"
+              description="Payload original fica em raw_events por tenant para auditoria."
+              checked
+              locked
+            />
+            <ToggleRow
+              icon={ServerCog}
+              label="Segredos somente no backend"
+              description="Tokens GLPI, BLiP e Graph ficam no .env/cofre, nunca no browser."
+              checked
+              locked
+            />
+            <ToggleRow
+              icon={LockKeyhole}
+              label="Escopo por tenant"
+              description="Cada sincronismo usa tenant_id e nao mistura dados de empresas."
+              checked
+              locked
+            />
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-lg border border-info/30 bg-info/10 p-5 shadow-panel">
         <SectionTitle
-          icon={Webhook}
-          title="Pipeline de entrada"
-          description="Fluxo esperado para manter o webhook rapido e processar dados de forma segura."
+          icon={Layers3}
+          title="Como configurar agora"
+          description="GLPI e o caminho mais rapido para testar dados reais; Teams/PABX depende de permissao no Microsoft Graph."
         />
-        <div className="mt-5 space-y-3">
-          <PipelineStep number="1" title="Receber webhook" description="API valida tenantKey e grava raw_event com hash idempotente." />
-          <PipelineStep number="2" title="Responder rapido" description="Retorna 200 e coloca o processamento em BullMQ." />
-          <PipelineStep number="3" title="Normalizar" description="Worker tenta criar Contact, Ticket e Message sem duplicar registros." />
-          <PipelineStep number="4" title="Disponibilizar BI" description="Dashboards consomem banco proprio, nao a API do BLiP no frontend." />
+        <div className="mt-5 grid gap-3 xl:grid-cols-3">
+          <SetupChecklist
+            title="BLiP"
+            icon={PlugZap}
+            items={[
+              'Pedir acesso ao BLiP no trabalho.',
+              'Cadastrar a Webhook URL exibida nesta tela.',
+              'Definir BLIP_WEBHOOK_SECRET quando o ambiente exigir secret.',
+            ]}
+          />
+          <SetupChecklist
+            title="GLPI"
+            icon={ServerCog}
+            items={[
+              'Habilitar API REST no GLPI.',
+              'Gerar App Token e User Token de usuario tecnico.',
+              'Preencher GLPI_BASE_URL, GLPI_APP_TOKEN e GLPI_USER_TOKEN no .env da API.',
+            ]}
+          />
+          <SetupChecklist
+            title="Teams Phone / PABX"
+            icon={PhoneCall}
+            items={[
+              'Criar App Registration no Entra ID.',
+              'Liberar CallRecords.Read.All e Reports.Read.All como Application.',
+              'Conceder admin consent e preencher tenant, client id e client secret.',
+            ]}
+          />
         </div>
       </section>
     </div>
   );
+}
+
+function IntegrationProviderCard({
+  integration,
+  copied,
+  result,
+  testing,
+  syncing,
+  onCopy,
+  onTestIntegration,
+  onSyncIntegration,
+}: {
+  integration: IntegrationSummary;
+  copied: string | null;
+  result?: IntegrationTestResult | IntegrationSyncResult;
+  testing: boolean;
+  syncing: boolean;
+  onCopy: CopyHandler;
+  onTestIntegration: (provider: IntegrationProvider) => void | Promise<void>;
+  onSyncIntegration: (provider: IntegrationProvider) => void | Promise<void>;
+}) {
+  const Icon = providerIcon(integration.provider);
+  const canSync = integration.provider !== 'BLIP';
+
+  return (
+    <article className="flex min-h-[430px] flex-col rounded-lg border border-border bg-secondary p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+            <Icon className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{integration.category}</p>
+            <h3 className="mt-1 text-base font-semibold text-card-foreground">{integration.label}</h3>
+          </div>
+        </div>
+        <IntegrationStatusBadge integration={integration} />
+      </div>
+
+      <p className="mt-4 text-sm leading-6 text-muted-foreground">{integration.description}</p>
+
+      <div className="mt-4 grid gap-2">
+        <SmallConfigRow label="Nome" value={integration.name} />
+        <SmallConfigRow label="Eventos brutos" value={`${integration.rawEvents} raw_events`} />
+        <SmallConfigRow label="Ultimo evento" value={formatNullableDate(integration.lastEventAt)} />
+        {integration.provider === 'BLIP' && integration.webhookUrl ? (
+          <div className="rounded-md border border-border bg-card p-3">
+            <p className="text-xs text-muted-foreground">Webhook URL</p>
+            <code className="mt-1 block break-all text-xs font-semibold text-card-foreground">{integration.webhookUrl}</code>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Configuracao</p>
+        <div className="mt-2 grid gap-2">
+          {Object.entries(integration.settingsPreview).slice(0, 4).map(([key, value]) => (
+            <SmallConfigRow key={key} label={prettyKey(key)} value={formatPreviewValue(value)} />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {integration.capabilities.slice(0, 6).map((capability) => (
+          <span key={capability} className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-muted-foreground">
+            {capability}
+          </span>
+        ))}
+      </div>
+
+      {integration.missingSettings.length ? (
+        <div className="mt-4 rounded-md border border-warning/30 bg-warning/10 p-3">
+          <div className="flex gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+            <p className="text-xs leading-5 text-muted-foreground">
+              Falta configurar: <span className="font-semibold text-card-foreground">{integration.missingSettings.join(', ')}</span>
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-md border border-success/30 bg-success/10 p-3">
+          <div className="flex gap-2">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+            <p className="text-xs leading-5 text-muted-foreground">{integration.nextAction}</p>
+          </div>
+        </div>
+      )}
+
+      {result ? <IntegrationResultBox result={result} /> : null}
+
+      <div className="mt-auto flex flex-wrap gap-2 pt-4">
+        {integration.provider === 'BLIP' && integration.webhookUrl ? (
+          <Button variant="outline" size="sm" type="button" onClick={() => onCopy('webhook', integration.webhookUrl ?? '')}>
+            <Copy className="h-4 w-4" aria-hidden="true" />
+            {copied === 'webhook' ? 'Copiado' : 'Copiar URL'}
+          </Button>
+        ) : null}
+        <Button size="sm" type="button" onClick={() => onTestIntegration(integration.provider)} disabled={testing}>
+          <TestTube2 className="h-4 w-4" aria-hidden="true" />
+          {testing ? 'Testando' : 'Testar'}
+        </Button>
+        {canSync ? (
+          <Button variant="outline" size="sm" type="button" onClick={() => onSyncIntegration(integration.provider)} disabled={syncing}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            {syncing ? 'Sincronizando' : 'Sync dry-run'}
+          </Button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function IntegrationStatusBadge({ integration }: { integration: IntegrationSummary }) {
+  const styles = {
+    connected: 'border-success/30 bg-success/10 text-success',
+    ready: 'border-info/30 bg-info/10 text-info',
+    pending: 'border-warning/30 bg-warning/10 text-warning',
+  }[integration.status];
+
+  return <span className={`shrink-0 rounded-md border px-2 py-1 text-xs font-semibold ${styles}`}>{integration.statusLabel}</span>;
+}
+
+function IntegrationResultBox({ result }: { result: IntegrationTestResult | IntegrationSyncResult }) {
+  const ok = 'ok' in result ? result.ok : result.accepted;
+
+  return (
+    <div className={`mt-4 rounded-md border p-3 ${ok ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}`}>
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{'checkedAt' in result ? 'Resultado do teste' : 'Resultado do sync'}</p>
+      <p className="mt-2 text-sm leading-6 text-card-foreground">{result.message}</p>
+    </div>
+  );
+}
+
+function SmallConfigRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-md border border-border bg-card px-3 py-2">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="break-all text-right text-xs font-semibold text-card-foreground">{value}</span>
+    </div>
+  );
+}
+
+function SetupChecklist({ title, icon: Icon, items }: { title: string; icon: LucideIcon; items: string[] }) {
+  return (
+    <article className="rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 items-center justify-center rounded-md border border-primary/25 bg-primary/10 text-primary">
+          <Icon className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <p className="font-semibold text-card-foreground">{title}</p>
+      </div>
+      <div className="mt-4 space-y-2">
+        {items.map((item) => (
+          <div key={item} className="flex gap-2 text-sm leading-6 text-muted-foreground">
+            <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function providerIcon(provider: IntegrationProvider) {
+  if (provider === 'GLPI') {
+    return ServerCog;
+  }
+
+  if (provider === 'TEAMS_PHONE') {
+    return PhoneCall;
+  }
+
+  return PlugZap;
+}
+
+function buildFallbackIntegrations(webhookUrl: string, integration?: SettingsOverview['integration']): IntegrationSummary[] {
+  return [
+    {
+      provider: 'BLIP',
+      label: 'BLiP',
+      name: integration?.name ?? demoIntegrationStatus.name,
+      category: 'Atendimento conversacional',
+      description: 'Coleta conversas, tickets, bot e mensagens via webhook.',
+      status: 'connected',
+      statusLabel: integration?.status ?? demoIntegrationStatus.status,
+      configured: true,
+      active: true,
+      tenantKey: integration?.tenantKey ?? 'local-tenant',
+      webhookUrl,
+      rawEvents: integration?.rawEvents ?? 0,
+      lastEventAt: integration?.lastEventAt ?? demoIntegrationStatus.lastSyncAt,
+      missingSettings: [],
+      requiredSettings: ['WEBHOOK_PUBLIC_BASE_URL', 'BLIP_WEBHOOK_SECRET quando obrigatorio'],
+      nextAction: 'Cadastrar webhook na origem e acompanhar raw_events.',
+      capabilities: ['Conversas', 'Mensagens', 'Filas', 'Atendentes', 'Bot', 'Qualidade'],
+      settingsPreview: { mode: 'demo', sourceRetentionDays: 90, atendebiRetentionDays: 730 },
+    },
+    {
+      provider: 'GLPI',
+      label: 'GLPI',
+      name: 'GLPI Homologacao',
+      category: 'ITSM / chamados',
+      description: 'Coleta chamados, SLAs, categorias, tecnicos e backlog do suporte.',
+      status: 'pending',
+      statusLabel: 'Pendente configuracao',
+      configured: false,
+      active: false,
+      rawEvents: 0,
+      lastEventAt: null,
+      missingSettings: ['GLPI_BASE_URL', 'GLPI_APP_TOKEN', 'GLPI_USER_TOKEN'],
+      requiredSettings: ['GLPI_BASE_URL', 'GLPI_APP_TOKEN', 'GLPI_USER_TOKEN'],
+      nextAction: 'Configurar credenciais GLPI no .env da API.',
+      capabilities: ['Chamados', 'SLA', 'Tecnicos', 'Categorias', 'Tempo de resolucao', 'Backlog'],
+      settingsPreview: { baseUrl: 'Nao configurado', apiPath: '/apirest.php', syncStrategy: 'Polling incremental' },
+    },
+    {
+      provider: 'TEAMS_PHONE',
+      label: 'Teams Phone / PABX',
+      name: 'Teams Phone / PABX',
+      category: 'Telefonia corporativa',
+      description: 'Coleta ligacoes, filas, duracao, abandono e relatorios via Microsoft Graph.',
+      status: 'pending',
+      statusLabel: 'Pendente configuracao',
+      configured: false,
+      active: false,
+      rawEvents: 0,
+      lastEventAt: null,
+      missingSettings: ['TEAMS_TENANT_ID', 'TEAMS_CLIENT_ID', 'TEAMS_CLIENT_SECRET'],
+      requiredSettings: ['TEAMS_TENANT_ID', 'TEAMS_CLIENT_ID', 'TEAMS_CLIENT_SECRET'],
+      nextAction: 'Configurar App Registration e permissoes Graph.',
+      capabilities: ['Ligacoes', 'Filas', 'Atendentes', 'Duracao', 'Abandono', 'Call Records'],
+      settingsPreview: { tenantId: 'Nao configurado', clientId: 'Nao configurado', permissions: ['CallRecords.Read.All', 'Reports.Read.All'] },
+    },
+  ];
+}
+
+function formatNullableDate(value: string | null) {
+  if (!value) {
+    return 'Sem evento';
+  }
+
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
+}
+
+function formatPreviewValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.join(', ');
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'Sim' : 'Nao';
+  }
+
+  if (typeof value === 'number') {
+    return String(value);
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  return 'Configurado';
+}
+
+function prettyKey(value: string) {
+  const labels: Record<string, string> = {
+    mode: 'Modo',
+    sourceRetentionDays: 'Retencao origem',
+    atendebiRetentionDays: 'Retencao AtendeBI',
+    baseUrl: 'Base URL',
+    apiPath: 'API path',
+    authMethod: 'Autenticacao',
+    syncStrategy: 'Sincronismo',
+    syncEnabled: 'Sync ativo',
+    tenantId: 'Tenant ID',
+    clientId: 'Client ID',
+    permissions: 'Permissoes',
+  };
+
+  return labels[value] ?? value;
 }
 
 export function SecurityTab({

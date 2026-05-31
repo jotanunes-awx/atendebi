@@ -1,6 +1,6 @@
 # AtendeBI
 
-AtendeBI e uma plataforma de inteligencia para atendimento conversacional. O objetivo do produto e coletar dados do BLiP, organizar em banco proprio e entregar visoes de BI, auditoria, qualidade, historico de conversas e gestao operacional.
+AtendeBI e uma plataforma de inteligencia para atendimento conversacional e operacional. O objetivo do produto e coletar dados de origens como BLiP, GLPI e Teams Phone/PABX, organizar em banco proprio e entregar visoes de BI, auditoria, qualidade, historico de conversas, chamados e filas.
 
 Nesta primeira base, o Fluig fica fora do nucleo do produto. A aplicacao principal e composta por:
 
@@ -45,7 +45,7 @@ npm run db:migrate
 npm run db:seed
 ```
 
-O seed cria o tenant `local-tenant`, o usuario admin mockado, roles, integracao BLiP demo, filas, atendentes, contatos, tickets, mensagens, ratings, tags e analises fake de IA.
+O seed cria o tenant `local-tenant`, o usuario admin mockado, roles, integracoes BLiP/GLPI/Teams demo, filas, atendentes, contatos, tickets, mensagens, ratings, tags e analises fake de IA.
 
 5. Rode API e frontend:
 
@@ -77,6 +77,16 @@ npm run dev
 - `GET /bot/overview`
 - `GET /sales/overview`
 - `GET /settings/overview`
+- `GET /integrations`
+- `GET /integrations/:provider`
+- `POST /integrations/:provider/test`
+- `POST /integrations/:provider/sync`
+
+Providers aceitos em `/integrations/:provider`:
+
+- `BLIP`
+- `GLPI`
+- `TEAMS_PHONE`
 
 ## Permissoes no MVP
 
@@ -105,6 +115,18 @@ curl http://localhost:3333/quality/overview ^
   -H "x-roles: ATENDEBI_ADMIN"
 
 curl http://localhost:3333/settings/overview ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+
+curl http://localhost:3333/integrations ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+
+curl -X POST http://localhost:3333/integrations/GLPI/test ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+
+curl -X POST http://localhost:3333/integrations/TEAMS_PHONE/test ^
   -H "x-tenant-id: local-tenant" ^
   -H "x-roles: ATENDEBI_ADMIN"
 ```
@@ -179,6 +201,43 @@ curl "http://localhost:3333/tickets?search=Cliente%20Teste" ^
   -H "x-roles: ATENDEBI_ADMIN"
 ```
 
+## Integracoes GLPI e Teams/PABX
+
+GLPI e o caminho mais simples para testar dados reais agora, porque normalmente basta habilitar a API REST e gerar tokens de aplicacao/usuario. Configure no `.env` da API:
+
+```env
+GLPI_BASE_URL=https://glpi.suaempresa.com
+GLPI_APP_TOKEN=seu-app-token
+GLPI_USER_TOKEN=seu-user-token
+GLPI_SYNC_ENABLED=false
+```
+
+Depois rode:
+
+```bash
+npm run db:seed
+curl -X POST http://localhost:3333/integrations/GLPI/test ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+```
+
+Teams Phone/PABX depende de uma App Registration no Microsoft Entra ID, permissao de administrador e Microsoft Graph:
+
+```env
+TEAMS_TENANT_ID=00000000-0000-0000-0000-000000000000
+TEAMS_CLIENT_ID=00000000-0000-0000-0000-000000000000
+TEAMS_CLIENT_SECRET=seu-client-secret
+TEAMS_SYNC_ENABLED=false
+TEAMS_GRAPH_SCOPES=https://graph.microsoft.com/.default
+```
+
+Permissoes Graph previstas para o piloto:
+
+- `CallRecords.Read.All`
+- `Reports.Read.All`
+
+No MVP, `/integrations/:provider/test` valida se a configuracao esta presente sem expor segredos. `/integrations/:provider/sync` registra um dry-run em `raw_events` para validar tenant, auditoria e fluxo, mas ainda nao chama GLPI ou Graph de verdade.
+
 ## Status do MVP local
 
 O MVP local esta considerado fechado quando:
@@ -199,6 +258,8 @@ O MVP local esta considerado fechado quando:
 1. Conectar autenticacao real com Microsoft Entra ID.
 2. Expor a API local via tunnel HTTPS ou publicar ambiente de homologacao.
 3. Configurar webhook real no BLiP apontando para `/webhooks/blip/:tenantKey`.
-4. Capturar payloads reais e ajustar normalizacao fina do worker.
-5. Usar API do BLiP somente no backend para backfill/historico, quando necessario.
-6. Adicionar testes automatizados para webhook, idempotencia e permissoes.
+4. Conectar GLPI real usando `/apirest.php/initSession`, busca incremental de chamados e normalizacao para tickets.
+5. Conectar Teams Phone via Microsoft Graph Call Records e relatarios de chamadas.
+6. Capturar payloads reais e ajustar normalizacao fina dos conectores.
+7. Usar API do BLiP somente no backend para backfill/historico, quando necessario.
+8. Adicionar testes automatizados para webhook, idempotencia e permissoes.

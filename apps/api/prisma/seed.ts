@@ -224,6 +224,90 @@ async function main() {
     },
   });
 
+  await prisma.integrationConfig.upsert({
+    where: {
+      tenantId_provider_name: {
+        tenantId: tenant.id,
+        provider: IntegrationProvider.GLPI,
+        name: 'GLPI Homologacao',
+      },
+    },
+    update: {
+      externalId: 'glpi-local',
+      isActive: Boolean(process.env.GLPI_BASE_URL),
+      settings: {
+        mode: process.env.GLPI_BASE_URL ? 'configured' : 'ready-to-configure',
+        baseUrl: process.env.GLPI_BASE_URL ?? '',
+        apiPath: '/apirest.php',
+        authMethod: 'app-token + user-token',
+        syncStrategy: 'polling',
+        syncEnabled: process.env.GLPI_SYNC_ENABLED === 'true',
+        entities: ['Central de Servicos'],
+        lastSyncAt: null,
+      },
+    },
+    create: {
+      tenantId: tenant.id,
+      provider: IntegrationProvider.GLPI,
+      name: 'GLPI Homologacao',
+      externalId: 'glpi-local',
+      isActive: Boolean(process.env.GLPI_BASE_URL),
+      settings: {
+        mode: process.env.GLPI_BASE_URL ? 'configured' : 'ready-to-configure',
+        baseUrl: process.env.GLPI_BASE_URL ?? '',
+        apiPath: '/apirest.php',
+        authMethod: 'app-token + user-token',
+        syncStrategy: 'polling',
+        syncEnabled: process.env.GLPI_SYNC_ENABLED === 'true',
+        entities: ['Central de Servicos'],
+        lastSyncAt: null,
+      },
+    },
+  });
+
+  await prisma.integrationConfig.upsert({
+    where: {
+      tenantId_provider_name: {
+        tenantId: tenant.id,
+        provider: IntegrationProvider.TEAMS_PHONE,
+        name: 'Teams Phone / PABX',
+      },
+    },
+    update: {
+      externalId: 'teams-phone-local',
+      isActive: Boolean(process.env.TEAMS_TENANT_ID && process.env.TEAMS_CLIENT_ID && process.env.TEAMS_CLIENT_SECRET),
+      settings: {
+        mode: process.env.TEAMS_CLIENT_SECRET ? 'configured' : 'waiting-admin-consent',
+        tenantId: process.env.TEAMS_TENANT_ID ?? '',
+        clientId: process.env.TEAMS_CLIENT_ID ?? '',
+        authMethod: 'Microsoft Graph application permissions',
+        syncStrategy: 'graph-callrecords',
+        syncEnabled: process.env.TEAMS_SYNC_ENABLED === 'true',
+        permissions: ['CallRecords.Read.All', 'Reports.Read.All'],
+        requiresAdminConsent: true,
+        lastSyncAt: null,
+      },
+    },
+    create: {
+      tenantId: tenant.id,
+      provider: IntegrationProvider.TEAMS_PHONE,
+      name: 'Teams Phone / PABX',
+      externalId: 'teams-phone-local',
+      isActive: Boolean(process.env.TEAMS_TENANT_ID && process.env.TEAMS_CLIENT_ID && process.env.TEAMS_CLIENT_SECRET),
+      settings: {
+        mode: process.env.TEAMS_CLIENT_SECRET ? 'configured' : 'waiting-admin-consent',
+        tenantId: process.env.TEAMS_TENANT_ID ?? '',
+        clientId: process.env.TEAMS_CLIENT_ID ?? '',
+        authMethod: 'Microsoft Graph application permissions',
+        syncStrategy: 'graph-callrecords',
+        syncEnabled: process.env.TEAMS_SYNC_ENABLED === 'true',
+        permissions: ['CallRecords.Read.All', 'Reports.Read.All'],
+        requiresAdminConsent: true,
+        lastSyncAt: null,
+      },
+    },
+  });
+
   await clearDemoOperationalData(tenant.id);
 
   const queues = await Promise.all(

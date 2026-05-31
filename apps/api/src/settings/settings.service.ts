@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
+import { IntegrationProvider, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
 
@@ -48,11 +48,17 @@ export class SettingsService {
       return emptySettingsOverview();
     }
 
-    const [rawEventCount, latestRawEvent, ticketGroups] = await Promise.all([
+    const [rawEventCount, latestRawEvent, rawEventGroups, ticketGroups] = await Promise.all([
       this.prisma.rawEvent.count({ where: { tenantId } }),
       this.prisma.rawEvent.findFirst({
         where: { tenantId },
         orderBy: { receivedAt: 'desc' },
+      }),
+      this.prisma.rawEvent.groupBy({
+        by: ['provider'],
+        where: { tenantId },
+        _count: { _all: true },
+        _max: { receivedAt: true },
       }),
       this.prisma.ticket.findMany({
         where: { tenantId },
@@ -65,9 +71,26 @@ export class SettingsService {
     ]);
 
     const integration = tenant.integrationConfigs.find((config) => config.provider === 'BLIP');
+    const rawEventStats = new Map(
+      rawEventGroups.map((group) => [
+        group.provider,
+        {
+          count: group._count._all,
+          lastEventAt: group._max.receivedAt?.toISOString() ?? null,
+        },
+      ]),
+    );
+    const blipStats = rawEventStats.get(IntegrationProvider.BLIP);
     const retentionDays = Number(this.configService.get<string>('ATENDEBI_RETENTION_DAYS', '730'));
     const sourceRetentionDays = Number(this.configService.get<string>('BLIP_SOURCE_RETENTION_DAYS', '90'));
     const webhookSecretRequired = this.configService.get<string>('WEBHOOK_SECRET_REQUIRED', 'false').toLowerCase() === 'true';
+    const integrations = buildIntegrationSummaries({
+      configs: tenant.integrationConfigs,
+      tenantKey: tenant.key,
+      rawEventStats,
+      configService: this.configService,
+      fallbackUpdatedAt: tenant.updatedAt,
+    });
 
     return {
       source: 'api' as const,
@@ -83,10 +106,12 @@ export class SettingsService {
         status: integration?.isActive ? 'Conectado' : 'Pendente',
         tenantKey: integration?.tenantKey ?? tenant.key,
         webhookUrl: this.buildWebhookUrl(tenant.key),
-        lastEventAt: latestRawEvent?.receivedAt.toISOString() ?? integration?.updatedAt.toISOString() ?? tenant.updatedAt.toISOString(),
-        rawEvents: rawEventCount,
+        lastEventAt:
+          blipStats?.lastEventAt ?? latestRawEvent?.receivedAt.toISOString() ?? integration?.updatedAt.toISOString() ?? tenant.updatedAt.toISOString(),
+        rawEvents: blipStats?.count ?? rawEventCount,
         webhookSecretRequired,
       },
+      integrations,
       security: {
         authMode: 'Mock local preparado para Microsoft Entra ID',
         tokenValidation: 'Mock headers no MVP; JWT/OIDC no piloto',
@@ -211,6 +236,7 @@ function emptySettingsOverview() {
     source: 'empty' as const,
     tenant: null,
     integration: null,
+    integrations: [],
     security: null,
     retention: null,
     users: [],
@@ -218,6 +244,219 @@ function emptySettingsOverview() {
     groups: [],
     lgpd: null,
   };
+}
+
+type IntegrationConfigSeed = {
+  provider: IntegrationProvider;
+  name: string;
+  tenantKey: string | null;
+  settings: Prisma.JsonValue | null;
+  isActive: boolean;
+  updatedAt: Date;
+};
+
+type ProviderStats = Map<IntegrationProvider, { count: number; lastEventAt: string | null }>;
+
+const integrationProviders = [IntegrationProvider.BLIP, IntegrationProvider.GLPI, IntegrationProvider.TEAMS_PHONE] as const;
+
+function buildIntegrationSummaries({
+  configs,
+  tenantKey,
+  rawEventStats,
+  configService,
+  fallbackUpdatedAt,
+}: {
+  configs: IntegrationConfigSeed[];
+  tenantKey: string;
+  rawEventStats: ProviderStats;
+  configService: ConfigService;
+  fallbackUpdatedAt: Date;
+}) {
+  const configByProvider = new Map(configs.map((config) => [config.provider, config]));
+
+  return integrationProviders.map((provider) => {
+    const config = configByProvider.get(provider);
+    const stats = rawEventStats.get(provider);
+    const settings = asRecord(config?.settings);
+    const missingSettings = getMissingIntegrationSettings(provider, settings, configService);
+    const configured = missingSettings.length === 0;
+    const active = Boolean(config?.isActive && configured);
+    const status = active ? 'connected' : configured ? 'ready' : 'pending';
+
+    return {
+      provider,
+      label: integrationLabel(provider),
+      name: config?.name ?? integrationLabel(provider),
+      category: integrationCategory(provider),
+      description: integrationDescription(provider),
+      status,
+      statusLabel: status === 'connected' ? 'Conectado' : status === 'ready' ? 'Pronto para testar' : 'Pendente configuracao',
+      configured,
+      active,
+      tenantKey: provider === IntegrationProvider.BLIP ? config?.tenantKey ?? tenantKey : undefined,
+      webhookUrl: provider === IntegrationProvider.BLIP ? buildWebhookUrl(configService, config?.tenantKey ?? tenantKey) : undefined,
+      rawEvents: stats?.count ?? 0,
+      lastEventAt: stats?.lastEventAt ?? config?.updatedAt.toISOString() ?? fallbackUpdatedAt.toISOString(),
+      missingSettings,
+      requiredSettings: integrationRequiredSettings(provider),
+      nextAction:
+        missingSettings.length > 0
+          ? `Configurar ${missingSettings.join(', ')} no .env da API.`
+          : provider === IntegrationProvider.BLIP
+            ? 'Cadastrar webhook na origem e acompanhar raw_events.'
+            : 'Executar teste de prontidao e ativar sincronismo real.',
+      capabilities: integrationCapabilities(provider),
+      settingsPreview: integrationSettingsPreview(provider, settings, configService),
+    };
+  });
+}
+
+function getMissingIntegrationSettings(provider: IntegrationProvider, settings: Record<string, unknown>, configService: ConfigService) {
+  if (provider === IntegrationProvider.BLIP) {
+    const webhookSecretRequired = configService.get<string>('WEBHOOK_SECRET_REQUIRED', 'false').toLowerCase() === 'true';
+    return webhookSecretRequired && !configService.get<string>('BLIP_WEBHOOK_SECRET') ? ['BLIP_WEBHOOK_SECRET'] : [];
+  }
+
+  if (provider === IntegrationProvider.GLPI) {
+    return [
+      [readString(settings, 'baseUrl', '') || configService.get<string>('GLPI_BASE_URL'), 'GLPI_BASE_URL'],
+      [configService.get<string>('GLPI_APP_TOKEN'), 'GLPI_APP_TOKEN'],
+      [configService.get<string>('GLPI_USER_TOKEN'), 'GLPI_USER_TOKEN'],
+    ]
+      .filter(([value]) => !value)
+      .map(([, key]) => key as string);
+  }
+
+  return [
+    [readString(settings, 'tenantId', '') || configService.get<string>('TEAMS_TENANT_ID'), 'TEAMS_TENANT_ID'],
+    [readString(settings, 'clientId', '') || configService.get<string>('TEAMS_CLIENT_ID'), 'TEAMS_CLIENT_ID'],
+    [configService.get<string>('TEAMS_CLIENT_SECRET'), 'TEAMS_CLIENT_SECRET'],
+  ]
+    .filter(([value]) => !value)
+    .map(([, key]) => key as string);
+}
+
+function integrationLabel(provider: IntegrationProvider) {
+  if (provider === IntegrationProvider.BLIP) {
+    return 'BLiP';
+  }
+
+  if (provider === IntegrationProvider.GLPI) {
+    return 'GLPI';
+  }
+
+  return 'Teams Phone / PABX';
+}
+
+function integrationCategory(provider: IntegrationProvider) {
+  if (provider === IntegrationProvider.BLIP) {
+    return 'Atendimento conversacional';
+  }
+
+  if (provider === IntegrationProvider.GLPI) {
+    return 'ITSM / chamados';
+  }
+
+  return 'Telefonia corporativa';
+}
+
+function integrationDescription(provider: IntegrationProvider) {
+  if (provider === IntegrationProvider.BLIP) {
+    return 'Coleta conversas, tickets, bot e mensagens via webhook.';
+  }
+
+  if (provider === IntegrationProvider.GLPI) {
+    return 'Coleta chamados, SLAs, categorias, tecnicos e backlog do suporte.';
+  }
+
+  return 'Coleta ligacoes, filas, duracao, abandono e relatorios via Microsoft Graph.';
+}
+
+function integrationRequiredSettings(provider: IntegrationProvider) {
+  if (provider === IntegrationProvider.BLIP) {
+    return ['WEBHOOK_PUBLIC_BASE_URL', 'BLIP_WEBHOOK_SECRET quando obrigatorio'];
+  }
+
+  if (provider === IntegrationProvider.GLPI) {
+    return ['GLPI_BASE_URL', 'GLPI_APP_TOKEN', 'GLPI_USER_TOKEN'];
+  }
+
+  return ['TEAMS_TENANT_ID', 'TEAMS_CLIENT_ID', 'TEAMS_CLIENT_SECRET', 'Admin consent no Graph'];
+}
+
+function integrationCapabilities(provider: IntegrationProvider) {
+  if (provider === IntegrationProvider.BLIP) {
+    return ['Conversas', 'Mensagens', 'Filas', 'Atendentes', 'Bot', 'Qualidade'];
+  }
+
+  if (provider === IntegrationProvider.GLPI) {
+    return ['Chamados', 'SLA', 'Tecnicos', 'Categorias', 'Tempo de resolucao', 'Backlog'];
+  }
+
+  return ['Ligacoes', 'Filas', 'Atendentes', 'Duracao', 'Abandono', 'Call Records'];
+}
+
+function integrationSettingsPreview(provider: IntegrationProvider, settings: Record<string, unknown>, configService: ConfigService) {
+  if (provider === IntegrationProvider.BLIP) {
+    return {
+      mode: readString(settings, 'mode', 'webhook'),
+      sourceRetentionDays: readNumber(settings, 'sourceRetentionDays') ?? 90,
+      atendebiRetentionDays: readNumber(settings, 'atendebiRetentionDays') ?? Number(configService.get<string>('ATENDEBI_RETENTION_DAYS', '730')),
+    };
+  }
+
+  if (provider === IntegrationProvider.GLPI) {
+    return {
+      baseUrl: maskUrl(readString(settings, 'baseUrl', '') || configService.get<string>('GLPI_BASE_URL') || ''),
+      apiPath: readString(settings, 'apiPath', '/apirest.php'),
+      authMethod: 'App Token + User Token',
+      syncStrategy: 'Polling incremental',
+      syncEnabled: configService.get<string>('GLPI_SYNC_ENABLED', 'false') === 'true',
+    };
+  }
+
+  return {
+    tenantId: maskId(readString(settings, 'tenantId', '') || configService.get<string>('TEAMS_TENANT_ID') || ''),
+    clientId: maskId(readString(settings, 'clientId', '') || configService.get<string>('TEAMS_CLIENT_ID') || ''),
+    authMethod: 'Microsoft Graph application permissions',
+    permissions: ['CallRecords.Read.All', 'Reports.Read.All'],
+    syncEnabled: configService.get<string>('TEAMS_SYNC_ENABLED', 'false') === 'true',
+  };
+}
+
+function buildWebhookUrl(configService: ConfigService, tenantKey: string) {
+  const baseUrl =
+    configService.get<string>('WEBHOOK_PUBLIC_BASE_URL') ??
+    `http://localhost:${configService.get<string>('PORT') ?? configService.get<string>('API_PORT') ?? '3333'}`;
+
+  return `${baseUrl.replace(/\/$/, '')}/webhooks/blip/${tenantKey}`;
+}
+
+function readNumber(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+
+  return typeof value === 'number' ? value : null;
+}
+
+function maskUrl(value: string) {
+  if (!value) {
+    return 'Nao configurado';
+  }
+
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.hostname}${url.port ? `:${url.port}` : ''}`;
+  } catch {
+    return value;
+  }
+}
+
+function maskId(value: string) {
+  if (!value) {
+    return 'Nao configurado';
+  }
+
+  return value.length <= 8 ? '***' : `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

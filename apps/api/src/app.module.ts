@@ -9,6 +9,7 @@ import { TenantContextModule } from './common/tenant/tenant-context.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { QualityModule } from './quality/quality.module';
 import { QueueModule } from './queues/queue.module';
 import { SalesModule } from './sales/sales.module';
@@ -51,6 +52,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     TenantContextModule,
     QueueModule,
     HealthModule,
+    IntegrationsModule,
     WebhooksModule,
     DashboardModule,
     TicketsModule,
