@@ -12,6 +12,7 @@ import { HealthModule } from './health/health.module';
 import { QualityModule } from './quality/quality.module';
 import { QueueModule } from './queues/queue.module';
 import { SalesModule } from './sales/sales.module';
+import { SettingsModule } from './settings/settings.module';
 import { SupportQueuesModule } from './support-queues/support-queues.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
@@ -59,6 +60,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     QualityModule,
     BotModule,
     SalesModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

@@ -11,6 +11,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,7 @@ import {
   SecurityTab,
 } from '@/features/settings/settings-tabs';
 import { demoIntegrationStatus } from '@/lib/demo-data';
+import { getSettingsOverview } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 
@@ -46,8 +48,13 @@ export default function ConfiguracoesPage() {
   const [maskSensitiveData, setMaskSensitiveData] = useState(true);
   const [aiConsentRequired, setAiConsentRequired] = useState(true);
   const [retentionMonths, setRetentionMonths] = useState('24');
+  const settingsQuery = useQuery({
+    queryKey: ['settings-overview'],
+    queryFn: getSettingsOverview,
+  });
 
-  const tenantName = user?.tenant ?? demoIntegrationStatus.tenant;
+  const settings = settingsQuery.data;
+  const tenantName = settings?.tenant?.name ?? user?.tenant ?? demoIntegrationStatus.tenant;
   const retentionDays = Number(retentionMonths) * 30;
   const estimatedStorage = useMemo(() => Math.round((retentionDays / 30) * 4.8), [retentionDays]);
 
@@ -78,6 +85,9 @@ export default function ConfiguracoesPage() {
               <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
                 Centro de controle do tenant, integracao BLiP, webhook, retencao historica, seguranca, perfis e LGPD.
               </p>
+              <p className="mt-4 text-xs font-semibold text-primary">
+                Fonte: {settingsQuery.isError ? 'Usando fallback local' : settings ? 'Conectado a API real' : 'Carregando API'}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" type="button" onClick={() => copyValue('tenant-key', 'local-tenant')}>
@@ -93,8 +103,8 @@ export default function ConfiguracoesPage() {
 
           <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <HealthCard icon={ShieldCheck} label="Tenant" value={tenantName} detail="local-tenant ativo" tone="success" />
-            <HealthCard icon={PlugZap} label="BLiP" value={demoIntegrationStatus.status} detail="Eventos recebidos por webhook" tone="success" />
-            <HealthCard icon={Archive} label="Historico" value={`${retentionMonths} meses`} detail="Banco proprio do AtendeBI" tone="info" />
+            <HealthCard icon={PlugZap} label="BLiP" value={settings?.integration?.status ?? demoIntegrationStatus.status} detail="Eventos recebidos por webhook" tone="success" />
+            <HealthCard icon={Archive} label="Historico" value={settings?.retention?.retentionPolicy ?? `${retentionMonths} meses`} detail="Banco proprio do AtendeBI" tone="info" />
             <HealthCard icon={LockKeyhole} label="Seguranca" value="Mock Entra ID" detail="Token BLiP fora do frontend" tone="warning" />
           </div>
         </div>
@@ -127,7 +137,8 @@ export default function ConfiguracoesPage() {
           <IntegrationTab
             copied={copied}
             testStatus={testStatus}
-            webhookSecretRequired={webhookSecretRequired}
+            webhookSecretRequired={settings?.integration?.webhookSecretRequired ?? webhookSecretRequired}
+            settings={settings}
             onCopy={copyValue}
             onTestWebhook={testWebhook}
             onToggleSecret={() => setWebhookSecretRequired((value) => !value)}
@@ -138,18 +149,20 @@ export default function ConfiguracoesPage() {
           <SecurityTab
             structuredAudit={structuredAudit}
             maskSensitiveData={maskSensitiveData}
+            settings={settings}
             onToggleAudit={() => setStructuredAudit((value) => !value)}
             onToggleMask={() => setMaskSensitiveData((value) => !value)}
           />
         ) : null}
 
-        {activeTab === 'perfis' ? <ProfilesTab /> : null}
+        {activeTab === 'perfis' ? <ProfilesTab settings={settings} /> : null}
 
         {activeTab === 'retencao' ? (
           <RetentionTab
             retentionMonths={retentionMonths}
             retentionDays={retentionDays}
             estimatedStorage={estimatedStorage}
+            settings={settings}
             onChangeRetention={setRetentionMonths}
           />
         ) : null}
@@ -158,6 +171,7 @@ export default function ConfiguracoesPage() {
           <LgpdTab
             aiConsentRequired={aiConsentRequired}
             maskSensitiveData={maskSensitiveData}
+            settings={settings}
             onToggleAiConsent={() => setAiConsentRequired((value) => !value)}
             onToggleMask={() => setMaskSensitiveData((value) => !value)}
           />

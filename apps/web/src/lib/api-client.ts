@@ -207,6 +207,67 @@ export type SalesOverview = {
   tickets: TicketHistoryItem[];
 };
 
+export type SettingsOverview = {
+  source: 'api' | 'empty';
+  tenant: {
+    id: string;
+    name: string;
+    key: string;
+    status: string;
+  } | null;
+  integration: {
+    provider: string;
+    name: string;
+    status: string;
+    tenantKey: string;
+    webhookUrl: string;
+    lastEventAt: string;
+    rawEvents: number;
+    webhookSecretRequired: boolean;
+  } | null;
+  security: {
+    authMode: string;
+    tokenValidation: string;
+    structuredAudit: boolean;
+    maskSensitiveData: boolean;
+    blipTokenInFrontend: boolean;
+  } | null;
+  retention: {
+    sourceRetentionDays: number;
+    retentionDays: number;
+    retentionPolicy: string;
+    estimatedStorageGb: number;
+  } | null;
+  users: Array<{
+    name: string;
+    email: string;
+    role: string;
+    status: string;
+    area: string;
+    lastAccess: string;
+  }>;
+  roles: Array<{
+    role: string;
+    label: string;
+    description: string;
+    users: number;
+  }>;
+  groups: Array<{
+    id: string;
+    name: string;
+    tickets: number;
+    openTickets: number;
+    channels: string[];
+  }>;
+  lgpd: {
+    purpose: string;
+    aiEnabled: boolean;
+    aiConsentRequired: boolean;
+    dataMinimization: boolean;
+    auditLogs: boolean;
+  } | null;
+};
+
 export async function getQualityOverview(): Promise<QualityOverview> {
   const response = await fetch(`${apiBaseUrl}/quality/overview`, {
     headers: mockHeaders,
@@ -238,6 +299,18 @@ export async function getSalesOverview(): Promise<SalesOverview> {
 
   if (!response.ok) {
     throw new Error(`Sales API returned ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getSettingsOverview(): Promise<SettingsOverview> {
+  const response = await fetch(`${apiBaseUrl}/settings/overview`, {
+    headers: mockHeaders,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Settings API returned ${response.status}`);
   }
 
   return response.json();

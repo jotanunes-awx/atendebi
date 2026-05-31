@@ -5,7 +5,7 @@ AtendeBI e uma plataforma de inteligencia para atendimento conversacional. O obj
 Nesta primeira base, o Fluig fica fora do nucleo do produto. A aplicacao principal e composta por:
 
 - `apps/api`: API NestJS com Prisma, Swagger, webhook BLiP e fila BullMQ.
-- `apps/web`: frontend Next.js com layout inicial do dashboard.
+- `apps/web`: frontend Next.js com dashboard, drill-downs, historico, bot, vendas e configuracoes.
 - `packages/shared`: tipos compartilhados entre API e frontend.
 - `docker-compose.yml`: PostgreSQL e Redis para desenvolvimento local.
 
@@ -60,7 +60,7 @@ npm run dev
 - Swagger/OpenAPI: http://localhost:3333/docs
 - Healthcheck: http://localhost:3333/health
 
-## Endpoints iniciais
+## Endpoints principais do MVP
 
 - `GET /health`
 - `POST /webhooks/blip/:tenantKey`
@@ -76,6 +76,7 @@ npm run dev
 - `GET /quality/overview`
 - `GET /bot/overview`
 - `GET /sales/overview`
+- `GET /settings/overview`
 
 ## Permissoes no MVP
 
@@ -102,6 +103,10 @@ curl http://localhost:3333/conversations/ticket-demo-001/messages ^
 curl http://localhost:3333/quality/overview ^
   -H "x-tenant-id: local-tenant" ^
   -H "x-roles: ATENDEBI_ADMIN"
+
+curl http://localhost:3333/settings/overview ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
 ```
 
 Perfis previstos:
@@ -126,14 +131,74 @@ Regras iniciais:
 - Tokens e chaves do BLiP ficam somente no backend.
 - Webhooks do BLiP sao salvos em `raw_events` com JSON bruto.
 - O webhook responde rapido e envia processamento para fila.
+- O worker tenta normalizar `Contact`, `Ticket` e `Message` a partir do evento recebido.
+- O webhook tem validacao opcional de secret via header `x-atendebi-webhook-secret`.
 - O banco ja nasce multitenant, com `tenant_id` nas tabelas principais.
 - O AtendeBI guarda historico proprio em PostgreSQL para BI e auditoria, sem depender da retencao curta da plataforma origem.
 - Autenticacao real via Microsoft Entra ID sera acoplada depois; por enquanto existe um guard mockado para preparar os endpoints protegidos.
 - O modulo de IA fica previsto no banco, mas nao e executado no webhook nem no MVP inicial.
 
-## Proximos passos sugeridos
+## Webhook BLiP no MVP local
+
+Por padrao, o ambiente local permite testar webhook sem secret:
+
+```env
+WEBHOOK_SECRET_REQUIRED=false
+BLIP_WEBHOOK_SECRET=change-me
+```
+
+Para simular uma configuracao mais segura, altere para:
+
+```env
+WEBHOOK_SECRET_REQUIRED=true
+BLIP_WEBHOOK_SECRET=um-segredo-forte
+```
+
+Exemplo de evento BLiP mockado sem secret:
+
+```bash
+curl -X POST http://localhost:3333/webhooks/blip/local-tenant ^
+  -H "Content-Type: application/json" ^
+  -d "{\"id\":\"evt-local-001\",\"type\":\"text/plain\",\"from\":\"551199990001@wa.gw.msging.net\",\"to\":\"bot@msging.net\",\"content\":\"Quero cancelar porque o bot nao resolveu.\",\"queue\":{\"name\":\"Retencao\"},\"agent\":{\"name\":\"Ana Lima\"},\"contact\":{\"name\":\"Cliente Teste\",\"phone\":\"+55 11 99990-0001\"}}"
+```
+
+Exemplo com secret habilitado:
+
+```bash
+curl -X POST http://localhost:3333/webhooks/blip/local-tenant ^
+  -H "Content-Type: application/json" ^
+  -H "x-atendebi-webhook-secret: um-segredo-forte" ^
+  -d "{\"id\":\"evt-local-002\",\"type\":\"text/plain\",\"from\":\"551199990002@wa.gw.msging.net\",\"content\":\"Preciso da segunda via do boleto.\",\"queue\":{\"name\":\"Financeiro\"}}"
+```
+
+Depois de enviar, consulte:
+
+```bash
+curl "http://localhost:3333/tickets?search=Cliente%20Teste" ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+```
+
+## Status do MVP local
+
+O MVP local esta considerado fechado quando:
+
+- Docker sobe PostgreSQL e Redis.
+- Migrations e seed rodam.
+- API abre em `http://localhost:3333`.
+- Swagger abre em `http://localhost:3333/docs`.
+- Frontend abre em `http://localhost:3000`.
+- Dashboard e paginas internas consomem a API real com fallback local.
+- `/bot`, `/vendas` e `/configuracoes` existem.
+- Webhook salva `raw_events`, enfileira e normaliza dados basicos.
+- Configuracoes leem `/settings/overview`.
+- Typecheck e build passam.
+
+## Proximos passos para piloto
 
 1. Conectar autenticacao real com Microsoft Entra ID.
-2. Implementar normalizacao dos eventos BLiP em tickets, mensagens, contatos, filas e atendentes.
-3. Ligar as paginas internas do frontend aos endpoints reais com filtros por periodo, fila, canal, grupo, atendente, nota e sentimento.
-4. Adicionar testes automatizados para webhook, idempotencia e permissoes.
+2. Expor a API local via tunnel HTTPS ou publicar ambiente de homologacao.
+3. Configurar webhook real no BLiP apontando para `/webhooks/blip/:tenantKey`.
+4. Capturar payloads reais e ajustar normalizacao fina do worker.
+5. Usar API do BLiP somente no backend para backfill/historico, quando necessario.
+6. Adicionar testes automatizados para webhook, idempotencia e permissoes.

@@ -21,6 +21,7 @@ import {
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { Button } from '@/components/ui/button';
 import { demoConversationGroups, demoIntegrationStatus } from '@/lib/demo-data';
+import type { SettingsOverview } from '@/lib/api-client';
 import {
   ComplianceRow,
   ConfigField,
@@ -73,6 +74,7 @@ export function IntegrationTab({
   copied,
   testStatus,
   webhookSecretRequired,
+  settings,
   onCopy,
   onTestWebhook,
   onToggleSecret,
@@ -80,10 +82,14 @@ export function IntegrationTab({
   copied: string | null;
   testStatus: 'idle' | 'testing' | 'ok';
   webhookSecretRequired: boolean;
+  settings?: SettingsOverview;
   onCopy: CopyHandler;
   onTestWebhook: () => void;
   onToggleSecret: () => void;
 }) {
+  const integration = settings?.integration;
+  const webhookUrl = integration?.webhookUrl ?? demoIntegrationStatus.webhookUrl;
+
   return (
     <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
       <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
@@ -94,26 +100,30 @@ export function IntegrationTab({
         />
 
         <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <ConfigField label="Provider" value={demoIntegrationStatus.provider} />
-          <ConfigField label="Nome da integracao" value={demoIntegrationStatus.name} />
-          <ConfigField label="Tenant key" value="local-tenant" />
+          <ConfigField label="Provider" value={integration?.provider ?? demoIntegrationStatus.provider} />
+          <ConfigField label="Nome da integracao" value={integration?.name ?? demoIntegrationStatus.name} />
+          <ConfigField label="Tenant key" value={integration?.tenantKey ?? 'local-tenant'} />
           <ConfigField
             label="Ultimo evento"
             value={new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(
-              new Date(demoIntegrationStatus.lastSyncAt),
+              new Date(integration?.lastEventAt ?? demoIntegrationStatus.lastSyncAt),
             )}
           />
-          <ConfigField label="Eventos recebidos" value="Mensagens, tickets, filas, atendentes" className="md:col-span-2" />
+          <ConfigField
+            label="Eventos recebidos"
+            value={`${integration?.rawEvents ?? 0} raw_events salvos, mensagens/tickets/contatos normalizados quando possivel`}
+            className="md:col-span-2"
+          />
         </div>
 
         <div className="mt-5 rounded-lg border border-border bg-secondary p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Webhook URL</p>
-              <code className="mt-2 block break-all text-sm text-card-foreground">{demoIntegrationStatus.webhookUrl}</code>
+              <code className="mt-2 block break-all text-sm text-card-foreground">{webhookUrl}</code>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" type="button" onClick={() => onCopy('webhook', demoIntegrationStatus.webhookUrl)}>
+              <Button variant="outline" type="button" onClick={() => onCopy('webhook', webhookUrl)}>
                 <Copy className="h-4 w-4" aria-hidden="true" />
                 {copied === 'webhook' ? 'Copiado' : 'Copiar URL'}
               </Button>
@@ -163,14 +173,18 @@ export function IntegrationTab({
 export function SecurityTab({
   structuredAudit,
   maskSensitiveData,
+  settings,
   onToggleAudit,
   onToggleMask,
 }: {
   structuredAudit: boolean;
   maskSensitiveData: boolean;
+  settings?: SettingsOverview;
   onToggleAudit: () => void;
   onToggleMask: () => void;
 }) {
+  const security = settings?.security;
+
   return (
     <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
       <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
@@ -180,10 +194,10 @@ export function SecurityTab({
           description="Camada atual mockada, preparada para Microsoft Entra ID e validacao de token na API."
         />
         <div className="mt-5 grid gap-3">
-          <ConfigField label="Login atual" value="Mock local com usuario Daniel Fernando" />
+          <ConfigField label="Login atual" value={security?.authMode ?? 'Mock local com usuario Daniel Fernando'} />
           <ConfigField label="Futuro provedor" value="Microsoft Entra ID / OAuth2 / OIDC" />
-          <ConfigField label="API" value="Validara token e roles antes de retornar dados do tenant" />
-          <ConfigField label="Chaves BLiP" value="Sempre no backend ou cofre de segredo, nunca no frontend" />
+          <ConfigField label="API" value={security?.tokenValidation ?? 'Validara token e roles antes de retornar dados do tenant'} />
+          <ConfigField label="Chaves BLiP" value={security?.blipTokenInFrontend ? 'Revisar: chave exposta' : 'Sempre no backend ou cofre de segredo, nunca no frontend'} />
         </div>
       </section>
 
@@ -212,7 +226,10 @@ export function SecurityTab({
   );
 }
 
-export function ProfilesTab() {
+export function ProfilesTab({ settings }: { settings?: SettingsOverview }) {
+  const users = settings?.users.length ? settings.users.map(mapApiUser) : userRows;
+  const roles = settings?.roles.length ? settings.roles : roleRows;
+
   return (
     <div className="space-y-5">
       <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
@@ -229,7 +246,7 @@ export function ProfilesTab() {
         </div>
         <div className="mt-5">
           <DataTable
-            data={userRows}
+            data={users}
             columns={userColumns}
             getSearchValue={(row) => `${row.name} ${row.email} ${row.role} ${row.area} ${row.status}`}
             searchPlaceholder="Buscar usuario, email, perfil ou area"
@@ -241,7 +258,7 @@ export function ProfilesTab() {
         <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
           <SectionTitle icon={UsersRound} title="Perfis previstos" description="Perfis usados para permissoes, dashboards e recortes futuros." />
           <div className="mt-5 space-y-3">
-            {roleRows.map((role) => (
+            {roles.map((role) => (
               <article key={role.role} className="rounded-lg border border-border bg-secondary p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -278,13 +295,38 @@ export function RetentionTab({
   retentionMonths,
   retentionDays,
   estimatedStorage,
+  settings,
   onChangeRetention,
 }: {
   retentionMonths: string;
   retentionDays: number;
   estimatedStorage: number;
+  settings?: SettingsOverview;
   onChangeRetention: (value: string) => void;
 }) {
+  const retention = settings?.retention;
+  const groups = settings?.groups.length
+    ? settings.groups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        tickets: group.tickets,
+        openTickets: group.openTickets,
+        highRiskTickets: 0,
+        averageRating: null as number | null,
+        channels: group.channels,
+        queues: ['API real'],
+      }))
+    : demoConversationGroups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        tickets: group.tickets,
+        openTickets: group.openTickets,
+        highRiskTickets: group.highRiskTickets,
+        averageRating: group.averageRating,
+        channels: group.channels,
+        queues: group.queues,
+      }));
+
   return (
     <div className="space-y-5">
       <section className="rounded-lg border border-info/30 bg-info/10 p-5 shadow-panel">
@@ -310,9 +352,27 @@ export function RetentionTab({
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <HealthCard icon={Database} label="Retencao origem" value={`${demoIntegrationStatus.sourceRetentionDays} dias`} detail="Referencia Meta/BLiP" tone="warning" />
-          <HealthCard icon={Archive} label="AtendeBI" value={`${retentionDays} dias`} detail="Historico proprio por tenant" tone="success" />
-          <HealthCard icon={FileClock} label="Uso estimado" value={`${estimatedStorage} GB`} detail="Simulacao mensal acumulada" tone="info" />
+          <HealthCard
+            icon={Database}
+            label="Retencao origem"
+            value={`${retention?.sourceRetentionDays ?? demoIntegrationStatus.sourceRetentionDays} dias`}
+            detail="Referencia Meta/BLiP"
+            tone="warning"
+          />
+          <HealthCard
+            icon={Archive}
+            label="AtendeBI"
+            value={`${retention?.retentionDays ?? retentionDays} dias`}
+            detail={retention?.retentionPolicy ?? 'Historico proprio por tenant'}
+            tone="success"
+          />
+          <HealthCard
+            icon={FileClock}
+            label="Uso estimado"
+            value={`${retention?.estimatedStorageGb ?? estimatedStorage} GB`}
+            detail="Simulacao mensal acumulada"
+            tone="info"
+          />
           <HealthCard icon={RefreshCw} label="Backup" value="Diario" detail="Politica futura por ambiente" tone="neutral" />
         </div>
       </section>
@@ -320,7 +380,7 @@ export function RetentionTab({
       <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
         <SectionTitle icon={Layers3} title="Grupos e canais" description="Usados para organizar historico quando houver milhares de conversas por dia." />
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {demoConversationGroups.slice(0, 8).map((group) => (
+          {groups.slice(0, 8).map((group) => (
             <article key={group.id} className="rounded-lg border border-border bg-secondary p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -334,7 +394,7 @@ export function RetentionTab({
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                 <span>{group.openTickets} abertos</span>
                 <span className="text-right">{group.highRiskTickets} risco alto</span>
-                <span>Nota {group.averageRating.toFixed(1).replace('.', ',')}</span>
+                <span>{group.averageRating === null ? 'API real' : `Nota ${group.averageRating.toFixed(1).replace('.', ',')}`}</span>
                 <span className="text-right">{group.channels.length} canais</span>
               </div>
             </article>
@@ -348,21 +408,29 @@ export function RetentionTab({
 export function LgpdTab({
   aiConsentRequired,
   maskSensitiveData,
+  settings,
   onToggleAiConsent,
   onToggleMask,
 }: {
   aiConsentRequired: boolean;
   maskSensitiveData: boolean;
+  settings?: SettingsOverview;
   onToggleAiConsent: () => void;
   onToggleMask: () => void;
 }) {
+  const lgpd = settings?.lgpd;
+
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
       <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
         <SectionTitle icon={ClipboardCheck} title="LGPD operacional" description="Controles que precisam existir antes de producao em cliente real." />
         <div className="mt-5 space-y-3">
-          <ComplianceRow title="Finalidade" description="BI, auditoria, qualidade e inteligencia de atendimento." status="Configurado" />
-          <ComplianceRow title="Minimizacao" description="Coletar somente dados necessarios para historico e indicadores." status="Pendente backend" />
+          <ComplianceRow title="Finalidade" description={lgpd?.purpose ?? 'BI, auditoria, qualidade e inteligencia de atendimento.'} status="Configurado" />
+          <ComplianceRow
+            title="Minimizacao"
+            description="Coletar somente dados necessarios para historico e indicadores."
+            status={lgpd?.dataMinimization ? 'Configurado' : 'Pendente backend'}
+          />
           <ComplianceRow title="Direito do titular" description="Preparar busca, exportacao e anonimizacao por contato." status="Planejado" />
           <ComplianceRow title="Auditoria" description="Registrar quem acessou configuracoes, conversas e exports." status="Configurado" />
           <ComplianceRow title="Retencao" description="Politica por tenant com prazo configuravel." status="Configurado" />
@@ -403,4 +471,15 @@ export function LgpdTab({
       </section>
     </div>
   );
+}
+
+function mapApiUser(user: SettingsOverview['users'][number]): MockUserRow {
+  return {
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    area: user.area,
+    status: user.status === 'ACTIVE' ? 'Ativo' : user.status === 'INVITED' ? 'Convidado' : 'Bloqueado',
+    lastAccess: user.lastAccess,
+  };
 }

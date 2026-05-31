@@ -1,8 +1,9 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, type IntegrationProvider } from '@prisma/client';
 import { Queue } from 'bullmq';
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { EVENT_PROCESSING_QUEUE, RawEventProcessingJob } from '../queues/queue.constants';
 
@@ -13,11 +14,14 @@ export class BlipWebhookService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
     @InjectQueue(EVENT_PROCESSING_QUEUE)
     private readonly eventQueue: Queue<RawEventProcessingJob>,
   ) {}
 
-  async receive(tenantKey: string, payload: Record<string, unknown>) {
+  async receive(tenantKey: string, payload: Record<string, unknown>, webhookSecret?: string) {
+    this.validateWebhookSecret(webhookSecret);
+
     const tenant = await this.prisma.tenant.findUnique({
       where: { key: tenantKey },
       select: { id: true, key: true, status: true },
@@ -103,6 +107,27 @@ export class BlipWebhookService {
 
   private hashPayload(payload: Record<string, unknown>) {
     return createHash('sha256').update(this.stableStringify(payload)).digest('hex');
+  }
+
+  private validateWebhookSecret(receivedSecret?: string) {
+    const required = this.configService.get<string>('WEBHOOK_SECRET_REQUIRED', 'false').toLowerCase() === 'true';
+
+    if (!required) {
+      return;
+    }
+
+    const expectedSecret = this.configService.get<string>('BLIP_WEBHOOK_SECRET');
+
+    if (!expectedSecret || !receivedSecret || !this.safeEquals(expectedSecret, receivedSecret)) {
+      throw new UnauthorizedException('Invalid webhook secret');
+    }
+  }
+
+  private safeEquals(expectedSecret: string, receivedSecret: string) {
+    const expected = Buffer.from(expectedSecret);
+    const received = Buffer.from(receivedSecret);
+
+    return expected.length === received.length && timingSafeEqual(expected, received);
   }
 
   private stableStringify(value: unknown): string {
