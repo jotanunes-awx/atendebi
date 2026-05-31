@@ -1,24 +1,55 @@
 'use client';
 
-import { Archive, Bell, Copy, Database, KeyRound, Layers3, PlugZap, ShieldCheck, UsersRound } from 'lucide-react';
-import { useState } from 'react';
+import {
+  Archive,
+  ClipboardCheck,
+  Copy,
+  LockKeyhole,
+  PlugZap,
+  Save,
+  ShieldCheck,
+  UsersRound,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { Button } from '@/components/ui/button';
-import { demoConversationGroups, demoIntegrationStatus } from '@/lib/demo-data';
+import { HealthCard } from '@/features/settings/settings-components';
+import type { ConfigTab } from '@/features/settings/settings-data';
+import {
+  IntegrationTab,
+  LgpdTab,
+  ProfilesTab,
+  RetentionTab,
+  SecurityTab,
+} from '@/features/settings/settings-tabs';
+import { demoIntegrationStatus } from '@/lib/demo-data';
 import { useAuth } from '@/lib/auth';
+import { cn } from '@/lib/utils';
 
-const roles = [
-  'ATENDEBI_ADMIN',
-  'ATENDEBI_DIRETORIA',
-  'ATENDEBI_GESTOR',
-  'ATENDEBI_QUALIDADE',
-  'ATENDEBI_COMERCIAL',
-  'ATENDEBI_ATENDENTE',
+const tabs: Array<{ id: ConfigTab; label: string; icon: LucideIcon }> = [
+  { id: 'integracao', label: 'Integracao BLiP', icon: PlugZap },
+  { id: 'seguranca', label: 'Seguranca', icon: ShieldCheck },
+  { id: 'perfis', label: 'Usuarios e perfis', icon: UsersRound },
+  { id: 'retencao', label: 'Retencao', icon: Archive },
+  { id: 'lgpd', label: 'LGPD', icon: ClipboardCheck },
 ];
 
 export default function ConfiguracoesPage() {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<ConfigTab>('integracao');
   const [copied, setCopied] = useState<string | null>(null);
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok'>('idle');
+  const [saved, setSaved] = useState(false);
+  const [webhookSecretRequired, setWebhookSecretRequired] = useState(true);
+  const [structuredAudit, setStructuredAudit] = useState(true);
+  const [maskSensitiveData, setMaskSensitiveData] = useState(true);
+  const [aiConsentRequired, setAiConsentRequired] = useState(true);
+  const [retentionMonths, setRetentionMonths] = useState('24');
+
+  const tenantName = user?.tenant ?? demoIntegrationStatus.tenant;
+  const retentionDays = Number(retentionMonths) * 30;
+  const estimatedStorage = useMemo(() => Math.round((retentionDays / 30) * 4.8), [retentionDays]);
 
   async function copyValue(label: string, value: string) {
     await navigator.clipboard?.writeText(value);
@@ -26,207 +57,112 @@ export default function ConfiguracoesPage() {
     window.setTimeout(() => setCopied(null), 1500);
   }
 
+  function testWebhook() {
+    setTestStatus('testing');
+    window.setTimeout(() => setTestStatus('ok'), 900);
+  }
+
+  function saveSettings() {
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 1600);
+  }
+
   return (
     <DashboardShell>
       <section className="space-y-6">
         <div className="rounded-lg border border-border bg-card p-6 shadow-panel">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Administracao</p>
-          <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Configuracoes</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Esta tela ainda usa configuracoes mockadas, mas ja mostra o que um cliente corporativo espera configurar: tenant, integracao, seguranca, perfis, retencao e LGPD.
-          </p>
-        </div>
-
-        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-          <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-card-foreground">Tenant atual</h3>
-                <p className="text-sm text-muted-foreground">Ambiente conectado ao usuario logado.</p>
-              </div>
-              <ShieldCheck className="h-5 w-5 text-primary" aria-hidden="true" />
-            </div>
-            <div className="mt-5 grid gap-3 text-sm">
-              <ConfigRow label="Empresa" value={user?.tenant ?? demoIntegrationStatus.tenant} />
-              <ConfigRow label="Usuario" value={user?.name ?? 'Daniel Fernando'} />
-              <ConfigRow label="E-mail" value={user?.email ?? 'daniel.fernando@jotanunes.com'} />
-              <ConfigRow label="Perfil" value={user?.role ?? 'ATENDEBI_ADMIN'} />
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-card-foreground">Integracao BLiP</h3>
-                <p className="text-sm text-muted-foreground">Status e endpoint para recebimento dos eventos.</p>
-              </div>
-              <PlugZap className="h-5 w-5 text-primary" aria-hidden="true" />
-            </div>
-            <div className="mt-5 grid gap-3 text-sm md:grid-cols-2">
-              <ConfigRow label="Provider" value={demoIntegrationStatus.provider} />
-              <ConfigRow label="Nome" value={demoIntegrationStatus.name} />
-              <ConfigRow label="Status" value={demoIntegrationStatus.status} tone="success" />
-              <ConfigRow label="Ultima sync" value={new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(demoIntegrationStatus.lastSyncAt))} />
-            </div>
-            <div className="mt-5 rounded-md border border-border bg-secondary p-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Webhook URL</p>
-              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <code className="break-all text-sm text-card-foreground">{demoIntegrationStatus.webhookUrl}</code>
-                <Button variant="outline" type="button" onClick={() => copyValue('webhook', demoIntegrationStatus.webhookUrl)}>
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                  {copied === 'webhook' ? 'Copiado' : 'Copiar'}
-                </Button>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div>
-              <div className="flex items-center gap-2">
-                <Layers3 className="h-5 w-5 text-primary" aria-hidden="true" />
-                <h3 className="text-base font-semibold text-card-foreground">Grupos de atendimento</h3>
-              </div>
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Administracao</p>
+              <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Configuracoes</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Estrutura mockada para o coordenador criar carteiras como JotaVendas 1, JotaVendas 2, JotaVendas 3,
-                Retencao VIP ou qualquer grupo operacional que ajude a filtrar historico e desempenho.
+                Centro de controle do tenant, integracao BLiP, webhook, retencao historica, seguranca, perfis e LGPD.
               </p>
             </div>
-            <Button variant="outline" type="button">
-              Novo grupo mockado
-            </Button>
-          </div>
-
-          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {demoConversationGroups.slice(0, 8).map((group) => (
-              <article key={group.id} className="rounded-lg border border-border bg-secondary p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-card-foreground">{group.name}</p>
-                    <p className="text-xs text-muted-foreground">{group.queues.join(', ')}</p>
-                  </div>
-                  <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
-                    {group.tickets}
-                  </span>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                  <span>{group.openTickets} abertos</span>
-                  <span className="text-right">{group.highRiskTickets} risco alto</span>
-                  <span>Nota {group.averageRating.toFixed(1).replace('.', ',')}</span>
-                  <span className="text-right">{group.channels.length} canais</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-info/30 bg-info/10 p-5 shadow-panel">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex gap-3">
-              <Archive className="mt-0.5 h-5 w-5 shrink-0 text-info" aria-hidden="true" />
-              <div>
-                <h3 className="font-semibold text-card-foreground">Retencao historica do AtendeBI</h3>
-                <p className="mt-2 max-w-4xl text-sm leading-6 text-muted-foreground">
-                  O filtro do dashboard pode olhar 24h, 7 dias, 30 dias, 90 dias, 12 meses ou periodo personalizado.
-                  A ideia do produto nao e depender da retencao da plataforma origem: o AtendeBI recebe os eventos,
-                  normaliza e guarda historico proprio em PostgreSQL para BI, auditoria e comparacao mensal.
-                </p>
-              </div>
-            </div>
-            <div className="grid min-w-64 gap-2 text-sm sm:grid-cols-3 lg:grid-cols-1">
-              <ConfigRow label="Origem/Meta" value={`${demoIntegrationStatus.sourceRetentionDays} dias estimados`} />
-              <ConfigRow label="AtendeBI" value={demoIntegrationStatus.retentionPolicy} tone="success" />
-              <ConfigRow label="Uso" value="BI historico e auditoria" />
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" type="button" onClick={() => copyValue('tenant-key', 'local-tenant')}>
+                <Copy className="h-4 w-4" aria-hidden="true" />
+                {copied === 'tenant-key' ? 'Tenant copiado' : 'Copiar tenant key'}
+              </Button>
+              <Button type="button" onClick={saveSettings}>
+                <Save className="h-4 w-4" aria-hidden="true" />
+                {saved ? 'Salvo' : 'Salvar mockado'}
+              </Button>
             </div>
           </div>
-        </section>
 
-        <div className="grid gap-5 xl:grid-cols-3">
-          <ConfigPanel
-            icon={KeyRound}
-            title="Seguranca"
-            description="Mock atual preparado para Entra ID."
-            rows={[
-              ['Login', 'Microsoft Entra ID futuro'],
-              ['Sessao local', 'localStorage'],
-              ['Webhook secret', 'Opcional no ambiente local'],
-              ['Frontend', 'Sem token BLiP exposto'],
-            ]}
-          />
-          <ConfigPanel
-            icon={UsersRound}
-            title="Usuarios e perfis"
-            description="Perfis previstos para controle de permissao."
-            rows={roles.map((role) => [role.replace('ATENDEBI_', ''), role])}
-          />
-          <ConfigPanel
-            icon={Database}
-            title="LGPD e retencao"
-            description="Politicas esperadas para produto SaaS."
-            rows={[
-              ['Retencao AtendeBI', `${demoIntegrationStatus.retentionDays} dias`],
-              ['Retencao origem', `${demoIntegrationStatus.sourceRetentionDays} dias estimados`],
-              ['Auditoria', 'audit_logs por tenant'],
-              ['Dados sensiveis', 'Minimizacao e mascaramento futuro'],
-              ['IA prevista', demoIntegrationStatus.aiEstimatedCost],
-            ]}
-          />
+          <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <HealthCard icon={ShieldCheck} label="Tenant" value={tenantName} detail="local-tenant ativo" tone="success" />
+            <HealthCard icon={PlugZap} label="BLiP" value={demoIntegrationStatus.status} detail="Eventos recebidos por webhook" tone="success" />
+            <HealthCard icon={Archive} label="Historico" value={`${retentionMonths} meses`} detail="Banco proprio do AtendeBI" tone="info" />
+            <HealthCard icon={LockKeyhole} label="Seguranca" value="Mock Entra ID" detail="Token BLiP fora do frontend" tone="warning" />
+          </div>
         </div>
 
-        <section className="rounded-lg border border-warning/30 bg-warning/10 p-5 shadow-panel">
-          <div className="flex gap-3">
-            <Bell className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden="true" />
-            <div>
-              <h3 className="font-semibold text-card-foreground">Avisos para proximas etapas</h3>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Ainda falta tela funcional para cadastrar usuarios, editar integracao e testar secret do webhook. Por enquanto esta pagina deixa a experiencia do produto clara e preparada para backend real.
-              </p>
-            </div>
+        <div className="rounded-lg border border-border bg-card p-2 shadow-panel">
+          <div className="flex gap-1 overflow-x-auto">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.id;
+
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={cn(
+                    'flex h-10 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground',
+                    active && 'bg-primary/10 text-primary',
+                  )}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
-        </section>
+        </div>
+
+        {activeTab === 'integracao' ? (
+          <IntegrationTab
+            copied={copied}
+            testStatus={testStatus}
+            webhookSecretRequired={webhookSecretRequired}
+            onCopy={copyValue}
+            onTestWebhook={testWebhook}
+            onToggleSecret={() => setWebhookSecretRequired((value) => !value)}
+          />
+        ) : null}
+
+        {activeTab === 'seguranca' ? (
+          <SecurityTab
+            structuredAudit={structuredAudit}
+            maskSensitiveData={maskSensitiveData}
+            onToggleAudit={() => setStructuredAudit((value) => !value)}
+            onToggleMask={() => setMaskSensitiveData((value) => !value)}
+          />
+        ) : null}
+
+        {activeTab === 'perfis' ? <ProfilesTab /> : null}
+
+        {activeTab === 'retencao' ? (
+          <RetentionTab
+            retentionMonths={retentionMonths}
+            retentionDays={retentionDays}
+            estimatedStorage={estimatedStorage}
+            onChangeRetention={setRetentionMonths}
+          />
+        ) : null}
+
+        {activeTab === 'lgpd' ? (
+          <LgpdTab
+            aiConsentRequired={aiConsentRequired}
+            maskSensitiveData={maskSensitiveData}
+            onToggleAiConsent={() => setAiConsentRequired((value) => !value)}
+            onToggleMask={() => setMaskSensitiveData((value) => !value)}
+          />
+        ) : null}
       </section>
     </DashboardShell>
-  );
-}
-
-function ConfigRow({ label, value, tone }: { label: string; value: string; tone?: 'success' }) {
-  return (
-    <div className="rounded-md border border-border bg-secondary px-3 py-2">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={tone === 'success' ? 'mt-1 font-semibold text-success' : 'mt-1 font-semibold text-card-foreground'}>{value}</p>
-    </div>
-  );
-}
-
-function ConfigPanel({
-  icon: Icon,
-  title,
-  description,
-  rows,
-}: {
-  icon: typeof ShieldCheck;
-  title: string;
-  description: string;
-  rows: string[][];
-}) {
-  return (
-    <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold text-card-foreground">{title}</h3>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-        <Icon className="h-5 w-5 text-primary" aria-hidden="true" />
-      </div>
-      <div className="mt-5 space-y-2">
-        {rows.map(([label, value]) => (
-          <div key={`${label}-${value}`} className="flex items-center justify-between gap-3 rounded-md bg-secondary px-3 py-2 text-sm">
-            <span className="text-muted-foreground">{label}</span>
-            <span className="text-right font-medium text-card-foreground">{value}</span>
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }

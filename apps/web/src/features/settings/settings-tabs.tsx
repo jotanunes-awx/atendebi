@@ -1,0 +1,406 @@
+import {
+  Archive,
+  Bell,
+  ClipboardCheck,
+  Copy,
+  Database,
+  EyeOff,
+  FileClock,
+  KeyRound,
+  Layers3,
+  LockKeyhole,
+  PlugZap,
+  RefreshCw,
+  ShieldCheck,
+  SlidersHorizontal,
+  TestTube2,
+  UserCog,
+  UsersRound,
+  Webhook,
+} from 'lucide-react';
+import { DataTable, type DataTableColumn } from '@/components/data-table';
+import { Button } from '@/components/ui/button';
+import { demoConversationGroups, demoIntegrationStatus } from '@/lib/demo-data';
+import {
+  ComplianceRow,
+  ConfigField,
+  HealthCard,
+  PipelineStep,
+  SectionTitle,
+  StatusPill,
+  ToggleRow,
+} from './settings-components';
+import { permissionRows, roleRows, userRows, type MockUserRow, type PermissionRow } from './settings-data';
+
+type CopyHandler = (label: string, value: string) => void;
+
+const userColumns: DataTableColumn<MockUserRow>[] = [
+  {
+    key: 'name',
+    header: 'Usuario',
+    accessor: (row) => (
+      <div>
+        <p className="font-semibold text-card-foreground">{row.name}</p>
+        <p className="text-xs text-muted-foreground">{row.email}</p>
+      </div>
+    ),
+  },
+  { key: 'area', header: 'Area', accessor: (row) => row.area },
+  {
+    key: 'role',
+    header: 'Perfil',
+    accessor: (row) => <span className="font-medium text-card-foreground">{row.role.replace('ATENDEBI_', '')}</span>,
+  },
+  { key: 'status', header: 'Status', accessor: (row) => <StatusPill status={row.status} /> },
+  { key: 'lastAccess', header: 'Ultimo acesso', accessor: (row) => row.lastAccess },
+];
+
+const permissionColumns: DataTableColumn<PermissionRow>[] = [
+  {
+    key: 'module',
+    header: 'Modulo',
+    accessor: (row) => <span className="font-semibold text-card-foreground">{row.module}</span>,
+  },
+  { key: 'admin', header: 'Admin', accessor: (row) => row.admin },
+  { key: 'diretoria', header: 'Diretoria', accessor: (row) => row.diretoria },
+  { key: 'gestor', header: 'Gestor', accessor: (row) => row.gestor },
+  { key: 'qualidade', header: 'Qualidade', accessor: (row) => row.qualidade },
+  { key: 'comercial', header: 'Comercial', accessor: (row) => row.comercial },
+  { key: 'atendente', header: 'Atendente', accessor: (row) => row.atendente },
+];
+
+export function IntegrationTab({
+  copied,
+  testStatus,
+  webhookSecretRequired,
+  onCopy,
+  onTestWebhook,
+  onToggleSecret,
+}: {
+  copied: string | null;
+  testStatus: 'idle' | 'testing' | 'ok';
+  webhookSecretRequired: boolean;
+  onCopy: CopyHandler;
+  onTestWebhook: () => void;
+  onToggleSecret: () => void;
+}) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+      <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+        <SectionTitle
+          icon={PlugZap}
+          title="Integracao BLiP"
+          description="Configuracao operacional para receber eventos sem expor token ou chave no frontend."
+        />
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <ConfigField label="Provider" value={demoIntegrationStatus.provider} />
+          <ConfigField label="Nome da integracao" value={demoIntegrationStatus.name} />
+          <ConfigField label="Tenant key" value="local-tenant" />
+          <ConfigField
+            label="Ultimo evento"
+            value={new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(
+              new Date(demoIntegrationStatus.lastSyncAt),
+            )}
+          />
+          <ConfigField label="Eventos recebidos" value="Mensagens, tickets, filas, atendentes" className="md:col-span-2" />
+        </div>
+
+        <div className="mt-5 rounded-lg border border-border bg-secondary p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Webhook URL</p>
+              <code className="mt-2 block break-all text-sm text-card-foreground">{demoIntegrationStatus.webhookUrl}</code>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" type="button" onClick={() => onCopy('webhook', demoIntegrationStatus.webhookUrl)}>
+                <Copy className="h-4 w-4" aria-hidden="true" />
+                {copied === 'webhook' ? 'Copiado' : 'Copiar URL'}
+              </Button>
+              <Button type="button" onClick={onTestWebhook}>
+                <TestTube2 className="h-4 w-4" aria-hidden="true" />
+                {testStatus === 'testing' ? 'Testando' : testStatus === 'ok' ? 'Webhook OK' : 'Testar'}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <ToggleRow
+            icon={KeyRound}
+            label="Exigir secret no webhook"
+            description="Usa o header x-atendebi-webhook-secret quando estiver habilitado."
+            checked={webhookSecretRequired}
+            onToggle={onToggleSecret}
+          />
+          <ToggleRow
+            icon={Database}
+            label="Salvar evento bruto"
+            description="Todo payload recebido permanece em raw_events para auditoria."
+            checked
+            locked
+          />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+        <SectionTitle
+          icon={Webhook}
+          title="Pipeline de entrada"
+          description="Fluxo esperado para manter o webhook rapido e processar dados de forma segura."
+        />
+        <div className="mt-5 space-y-3">
+          <PipelineStep number="1" title="Receber webhook" description="API valida tenantKey e grava raw_event com hash idempotente." />
+          <PipelineStep number="2" title="Responder rapido" description="Retorna 200 e coloca o processamento em BullMQ." />
+          <PipelineStep number="3" title="Normalizar" description="Worker tenta criar Contact, Ticket e Message sem duplicar registros." />
+          <PipelineStep number="4" title="Disponibilizar BI" description="Dashboards consomem banco proprio, nao a API do BLiP no frontend." />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function SecurityTab({
+  structuredAudit,
+  maskSensitiveData,
+  onToggleAudit,
+  onToggleMask,
+}: {
+  structuredAudit: boolean;
+  maskSensitiveData: boolean;
+  onToggleAudit: () => void;
+  onToggleMask: () => void;
+}) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+      <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+        <SectionTitle
+          icon={ShieldCheck}
+          title="Seguranca e autenticacao"
+          description="Camada atual mockada, preparada para Microsoft Entra ID e validacao de token na API."
+        />
+        <div className="mt-5 grid gap-3">
+          <ConfigField label="Login atual" value="Mock local com usuario Daniel Fernando" />
+          <ConfigField label="Futuro provedor" value="Microsoft Entra ID / OAuth2 / OIDC" />
+          <ConfigField label="API" value="Validara token e roles antes de retornar dados do tenant" />
+          <ConfigField label="Chaves BLiP" value="Sempre no backend ou cofre de segredo, nunca no frontend" />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+        <SectionTitle icon={SlidersHorizontal} title="Controles ativos" description="Opcoes mockadas que representam politicas reais do tenant." />
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <ToggleRow
+            icon={FileClock}
+            label="Logs de auditoria estruturados"
+            description="Registra acoes administrativas e acessos criticos por tenant."
+            checked={structuredAudit}
+            onToggle={onToggleAudit}
+          />
+          <ToggleRow
+            icon={EyeOff}
+            label="Mascarar dados sensiveis"
+            description="Prepara exibicao com minimizacao de telefone, documento e identificadores."
+            checked={maskSensitiveData}
+            onToggle={onToggleMask}
+          />
+          <ToggleRow icon={LockKeyhole} label="Escopo por tenant" description="Todas as consultas devem manter filtro por tenant_id." checked locked />
+          <ToggleRow icon={KeyRound} label="Rotacao de segredo" description="Secret do webhook sera rotacionavel em etapa de backend." checked locked />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function ProfilesTab() {
+  return (
+    <div className="space-y-5">
+      <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <SectionTitle
+            icon={UserCog}
+            title="Usuarios"
+            description="Base mockada para evoluir depois para cadastro real, convites e sincronismo com Entra ID."
+          />
+          <Button variant="outline" type="button">
+            <UsersRound className="h-4 w-4" aria-hidden="true" />
+            Convidar usuario mockado
+          </Button>
+        </div>
+        <div className="mt-5">
+          <DataTable
+            data={userRows}
+            columns={userColumns}
+            getSearchValue={(row) => `${row.name} ${row.email} ${row.role} ${row.area} ${row.status}`}
+            searchPlaceholder="Buscar usuario, email, perfil ou area"
+          />
+        </div>
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+          <SectionTitle icon={UsersRound} title="Perfis previstos" description="Perfis usados para permissoes, dashboards e recortes futuros." />
+          <div className="mt-5 space-y-3">
+            {roleRows.map((role) => (
+              <article key={role.role} className="rounded-lg border border-border bg-secondary p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-card-foreground">{role.label}</p>
+                    <p className="mt-1 text-xs font-medium text-primary">{role.role}</p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{role.description}</p>
+                  </div>
+                  <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                    {role.users}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+          <SectionTitle icon={LockKeyhole} title="Matriz de permissao" description="Mapa inicial para evitar acesso indevido entre areas." />
+          <div className="mt-5">
+            <DataTable
+              data={permissionRows}
+              columns={permissionColumns}
+              getSearchValue={(row) => Object.values(row).join(' ')}
+              searchPlaceholder="Buscar modulo ou perfil"
+            />
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+export function RetentionTab({
+  retentionMonths,
+  retentionDays,
+  estimatedStorage,
+  onChangeRetention,
+}: {
+  retentionMonths: string;
+  retentionDays: number;
+  estimatedStorage: number;
+  onChangeRetention: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <section className="rounded-lg border border-info/30 bg-info/10 p-5 shadow-panel">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <SectionTitle
+            icon={Archive}
+            title="Retencao historica"
+            description="O AtendeBI guarda historico proprio para BI e auditoria, mesmo quando a plataforma de origem mantem dados por menos tempo."
+          />
+          <label className="min-w-56 text-xs font-medium text-muted-foreground">
+            Politica do tenant
+            <select
+              value={retentionMonths}
+              onChange={(event) => onChangeRetention(event.target.value)}
+              className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-semibold text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+            >
+              <option value="12">12 meses</option>
+              <option value="24">24 meses</option>
+              <option value="36">36 meses</option>
+              <option value="60">60 meses</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <HealthCard icon={Database} label="Retencao origem" value={`${demoIntegrationStatus.sourceRetentionDays} dias`} detail="Referencia Meta/BLiP" tone="warning" />
+          <HealthCard icon={Archive} label="AtendeBI" value={`${retentionDays} dias`} detail="Historico proprio por tenant" tone="success" />
+          <HealthCard icon={FileClock} label="Uso estimado" value={`${estimatedStorage} GB`} detail="Simulacao mensal acumulada" tone="info" />
+          <HealthCard icon={RefreshCw} label="Backup" value="Diario" detail="Politica futura por ambiente" tone="neutral" />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+        <SectionTitle icon={Layers3} title="Grupos e canais" description="Usados para organizar historico quando houver milhares de conversas por dia." />
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {demoConversationGroups.slice(0, 8).map((group) => (
+            <article key={group.id} className="rounded-lg border border-border bg-secondary p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-card-foreground">{group.name}</p>
+                  <p className="text-xs text-muted-foreground">{group.queues.join(', ')}</p>
+                </div>
+                <span className="rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                  {group.tickets}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                <span>{group.openTickets} abertos</span>
+                <span className="text-right">{group.highRiskTickets} risco alto</span>
+                <span>Nota {group.averageRating.toFixed(1).replace('.', ',')}</span>
+                <span className="text-right">{group.channels.length} canais</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function LgpdTab({
+  aiConsentRequired,
+  maskSensitiveData,
+  onToggleAiConsent,
+  onToggleMask,
+}: {
+  aiConsentRequired: boolean;
+  maskSensitiveData: boolean;
+  onToggleAiConsent: () => void;
+  onToggleMask: () => void;
+}) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+      <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+        <SectionTitle icon={ClipboardCheck} title="LGPD operacional" description="Controles que precisam existir antes de producao em cliente real." />
+        <div className="mt-5 space-y-3">
+          <ComplianceRow title="Finalidade" description="BI, auditoria, qualidade e inteligencia de atendimento." status="Configurado" />
+          <ComplianceRow title="Minimizacao" description="Coletar somente dados necessarios para historico e indicadores." status="Pendente backend" />
+          <ComplianceRow title="Direito do titular" description="Preparar busca, exportacao e anonimizacao por contato." status="Planejado" />
+          <ComplianceRow title="Auditoria" description="Registrar quem acessou configuracoes, conversas e exports." status="Configurado" />
+          <ComplianceRow title="Retencao" description="Politica por tenant com prazo configuravel." status="Configurado" />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-5 shadow-panel">
+        <SectionTitle icon={EyeOff} title="Privacidade e IA futura" description="IA ainda nao executa no MVP, mas a configuracao ja deixa as regras claras." />
+        <div className="mt-5 grid gap-3">
+          <ToggleRow
+            icon={EyeOff}
+            label="Mascarar dados sensiveis"
+            description="Telefone e identificadores podem ser exibidos de forma reduzida para perfis restritos."
+            checked={maskSensitiveData}
+            onToggle={onToggleMask}
+          />
+          <ToggleRow
+            icon={ShieldCheck}
+            label="Exigir consentimento para IA"
+            description="Analises futuras devem respeitar politica do tenant e base legal definida."
+            checked={aiConsentRequired}
+            onToggle={onToggleAiConsent}
+          />
+          <ToggleRow icon={Database} label="Nao treinar modelo com dados do cliente" description="Politica esperada para ambiente corporativo." checked locked />
+        </div>
+
+        <div className="mt-5 rounded-lg border border-warning/30 bg-warning/10 p-4">
+          <div className="flex gap-3">
+            <Bell className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden="true" />
+            <div>
+              <p className="font-semibold text-card-foreground">Antes de producao</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Definir contrato de retencao, politica de mascaramento por perfil, fluxo de exclusao/anonimizacao e trilha de auditoria de exportacoes.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
