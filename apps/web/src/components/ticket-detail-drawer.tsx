@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
   Bot,
@@ -20,6 +21,7 @@ import { RiskBadge } from '@/components/risk-badge';
 import { SentimentBadge } from '@/components/sentiment-badge';
 import { StatusBadge } from '@/components/status-badge';
 import { formatDateTime } from '@/components/ticket-columns';
+import { getConversationMessages } from '@/lib/api-client';
 import { getDemoMessages, type DemoTicket } from '@/lib/demo-data';
 import { cn } from '@/lib/utils';
 
@@ -44,7 +46,16 @@ const pointToneStyles = {
 
 export function TicketDetailDrawer({ ticket, contextLabel, onClose }: TicketDetailDrawerProps) {
   const open = Boolean(ticket);
-  const messages = ticket ? getDemoMessages(ticket) : [];
+  const messagesQuery = useQuery({
+    queryKey: ['ticket-detail-messages', ticket?.id],
+    queryFn: () => getConversationMessages(ticket?.id ?? ''),
+    enabled: Boolean(ticket?.id),
+  });
+  const messages = ticket
+    ? messagesQuery.data?.data?.length
+      ? messagesQuery.data.data
+      : getDemoMessages(ticket)
+    : [];
   const investigation = ticket ? buildInvestigation(ticket) : [];
 
   return (
@@ -170,7 +181,9 @@ export function TicketDetailDrawer({ ticket, contextLabel, onClose }: TicketDeta
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
                     <h3 className="text-base font-semibold text-card-foreground">Historico completo</h3>
-                    <p className="text-sm text-muted-foreground">Linha do tempo resumida da conversa demo.</p>
+                    <p className="text-sm text-muted-foreground">
+                      {messagesQuery.isLoading ? 'Carregando mensagens da API.' : 'Linha do tempo com API real e fallback demo.'}
+                    </p>
                   </div>
                   <MessageSquareText className="h-5 w-5 text-primary" aria-hidden="true" />
                 </div>

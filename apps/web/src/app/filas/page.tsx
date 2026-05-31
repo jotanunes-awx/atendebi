@@ -1,6 +1,7 @@
 'use client';
 
 import { AlertTriangle, Clock3, Inbox, Star } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { DashboardShell } from '@/components/dashboard-shell';
@@ -8,6 +9,7 @@ import { DrilldownDrawer } from '@/components/drilldown-drawer';
 import { RiskBadge } from '@/components/risk-badge';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
+import { getQueue, getQueues, type QueueItem } from '@/lib/api-client';
 import { demoQueueMetrics, getTicketsByQueue, type DemoQueueMetric, type DemoTicket } from '@/lib/demo-data';
 
 const queueColumns: DataTableColumn<DemoQueueMetric>[] = [
@@ -46,10 +48,29 @@ const queueColumns: DataTableColumn<DemoQueueMetric>[] = [
 export default function FilasPage() {
   const [drawer, setDrawer] = useState<{ queue: DemoQueueMetric; rows: DemoTicket[] } | null>(null);
   const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
+  const queuesQuery = useQuery({
+    queryKey: ['queues'],
+    queryFn: getQueues,
+  });
+
+  const apiQueues = queuesQuery.data?.data ?? [];
+  const usingApi = !queuesQuery.isError && apiQueues.length > 0;
+  const queues = usingApi ? apiQueues.map(mapQueue) : demoQueueMetrics;
+  const queueDetailQuery = useQuery({
+    queryKey: ['queue-detail', drawer?.queue.id],
+    queryFn: () => getQueue(drawer?.queue.id ?? ''),
+    enabled: Boolean(drawer?.queue.id && usingApi),
+  });
 
   function openQueue(queue: DemoQueueMetric) {
     setDrawer({ queue, rows: getTicketsByQueue(queue.name) });
   }
+
+  const drawerRows =
+    usingApi && queueDetailQuery.data?.tickets
+      ? (queueDetailQuery.data.tickets as unknown as DemoTicket[])
+      : drawer?.rows ?? [];
+  const detailAgents = queueDetailQuery.data?.agents?.map((agent) => `${agent.name} (${agent.openTickets})`).join(', ');
 
   return (
     <DashboardShell>
@@ -60,10 +81,13 @@ export default function FilasPage() {
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
             Cada fila agora abre a lista de tickets, riscos, responsavel e gargalos. Clique no numero de abertos ou na linha da tabela para detalhar.
           </p>
+          <p className="mt-4 text-xs font-semibold text-primary">
+            Fonte: {usingApi ? 'Conectado a API real' : queuesQuery.isLoading ? 'Carregando API' : 'Usando fallback local'}
+          </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          {demoQueueMetrics.map((queue) => (
+          {queues.map((queue) => (
             <button
               key={queue.id}
               type="button"
@@ -103,7 +127,7 @@ export default function FilasPage() {
             <p className="text-sm text-muted-foreground">Busca, ranking e clique para abrir os tickets da fila.</p>
           </div>
           <DataTable
-            data={demoQueueMetrics}
+            data={queues}
             columns={queueColumns}
             getSearchValue={(queue) => `${queue.name} ${queue.owner}`}
             searchPlaceholder="Buscar fila ou responsavel"
@@ -117,11 +141,11 @@ export default function FilasPage() {
         title={drawer ? `Fila ${drawer.queue.name}` : ''}
         description={
           drawer
-            ? `${drawer.queue.openTickets} tickets abertos, espera media de ${drawer.queue.averageWaitMinutes.toFixed(1).replace('.', ',')} minutos e ${drawer.queue.riskTickets} casos em risco.`
+            ? `${drawer.queue.openTickets} tickets abertos, espera media de ${drawer.queue.averageWaitMinutes.toFixed(1).replace('.', ',')} minutos e ${drawer.queue.riskTickets} casos em risco.${detailAgents ? ` Atendentes: ${detailAgents}.` : ''}`
             : ''
         }
-        filters={drawer ? [{ label: 'Fila', value: drawer.queue.name }] : []}
-        rows={drawer?.rows ?? []}
+        filters={drawer ? [{ label: 'Fila', value: drawer.queue.name }, { label: 'Fonte', value: usingApi ? 'API real' : 'Fallback local' }] : []}
+        rows={drawerRows}
         columns={ticketColumns}
         getSearchValue={getTicketSearchValue}
         onClose={() => setDrawer(null)}
@@ -134,4 +158,16 @@ export default function FilasPage() {
       />
     </DashboardShell>
   );
+}
+
+function mapQueue(queue: QueueItem): DemoQueueMetric {
+  return {
+    id: queue.id,
+    name: queue.name,
+    openTickets: queue.openTickets,
+    averageWaitMinutes: queue.averageWaitMinutes,
+    averageRating: queue.averageRating,
+    riskTickets: queue.riskTickets,
+    owner: queue.agents?.[0]?.name ?? 'Responsavel operacional',
+  };
 }

@@ -1,12 +1,14 @@
 'use client';
 
 import { MessageSquareText, Star, Timer, TrendingUp } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { DrilldownDrawer } from '@/components/drilldown-drawer';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
+import { getAgent, getAgents, type AgentItem } from '@/lib/api-client';
 import { demoAgentMetrics, getTicketsByAgent, type DemoAgentMetric, type DemoTicket } from '@/lib/demo-data';
 
 const agentColumns: DataTableColumn<DemoAgentMetric>[] = [
@@ -50,10 +52,28 @@ const agentColumns: DataTableColumn<DemoAgentMetric>[] = [
 export default function AtendentesPage() {
   const [drawer, setDrawer] = useState<{ agent: DemoAgentMetric; rows: DemoTicket[] } | null>(null);
   const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
+  const agentsQuery = useQuery({
+    queryKey: ['agents'],
+    queryFn: getAgents,
+  });
+
+  const apiAgents = agentsQuery.data?.data ?? [];
+  const usingApi = !agentsQuery.isError && apiAgents.length > 0;
+  const agents = usingApi ? apiAgents.map(mapAgent) : demoAgentMetrics;
+  const agentDetailQuery = useQuery({
+    queryKey: ['agent-detail', drawer?.agent.id],
+    queryFn: () => getAgent(drawer?.agent.id ?? ''),
+    enabled: Boolean(drawer?.agent.id && usingApi),
+  });
 
   function openAgent(agent: DemoAgentMetric) {
     setDrawer({ agent, rows: getTicketsByAgent(agent.name) });
   }
+
+  const drawerRows =
+    usingApi && agentDetailQuery.data?.tickets
+      ? (agentDetailQuery.data.tickets as unknown as DemoTicket[])
+      : drawer?.rows ?? [];
 
   return (
     <DashboardShell>
@@ -64,10 +84,13 @@ export default function AtendentesPage() {
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
             Clique em qualquer atendente para ver carteira, tickets abertos, historico recente, nota media e casos de risco.
           </p>
+          <p className="mt-4 text-xs font-semibold text-primary">
+            Fonte: {usingApi ? 'Conectado a API real' : agentsQuery.isLoading ? 'Carregando API' : 'Usando fallback local'}
+          </p>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          {demoAgentMetrics.map((agent) => (
+          {agents.map((agent) => (
             <button
               key={agent.id}
               type="button"
@@ -124,7 +147,7 @@ export default function AtendentesPage() {
             <p className="text-sm text-muted-foreground">Ranking com busca e detalhe da carteira de cada pessoa.</p>
           </div>
           <DataTable
-            data={demoAgentMetrics}
+            data={agents}
             columns={agentColumns}
             getSearchValue={(agent) => `${agent.name} ${agent.queue}`}
             searchPlaceholder="Buscar atendente ou fila"
@@ -141,8 +164,8 @@ export default function AtendentesPage() {
             ? `${drawer.agent.openTickets} tickets em aberto, nota media ${drawer.agent.averageRating.toFixed(1).replace('.', ',')} e ${drawer.agent.complaints} reclamacoes associadas.`
             : ''
         }
-        filters={drawer ? [{ label: 'Atendente', value: drawer.agent.name }] : []}
-        rows={drawer?.rows ?? []}
+        filters={drawer ? [{ label: 'Atendente', value: drawer.agent.name }, { label: 'Fonte', value: usingApi ? 'API real' : 'Fallback local' }] : []}
+        rows={drawerRows}
         columns={ticketColumns}
         getSearchValue={getTicketSearchValue}
         onClose={() => setDrawer(null)}
@@ -155,4 +178,18 @@ export default function AtendentesPage() {
       />
     </DashboardShell>
   );
+}
+
+function mapAgent(agent: AgentItem): DemoAgentMetric {
+  return {
+    id: agent.id,
+    name: agent.name,
+    queue: agent.queue,
+    ticketsHandled: agent.ticketsHandled,
+    openTickets: agent.openTickets,
+    averageRating: agent.averageRating,
+    resolutionRate: agent.resolutionRate,
+    firstResponseMinutes: agent.firstResponseMinutes,
+    complaints: agent.complaints,
+  };
 }

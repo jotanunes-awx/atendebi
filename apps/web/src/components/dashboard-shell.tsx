@@ -12,6 +12,7 @@ import {
   MessageSquareText,
   RefreshCw,
   Settings,
+  ShoppingCart,
   UsersRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,8 @@ const navItems = [
   { label: 'Atendentes', href: '/atendentes', icon: UsersRound },
   { label: 'Conversas', href: '/conversas', icon: MessageSquareText },
   { label: 'Qualidade', href: '/qualidade', icon: ClipboardCheck },
+  { label: 'Bot', href: '/bot', icon: Bot },
+  { label: 'Vendas', href: '/vendas', icon: ShoppingCart },
   { label: 'Configuracoes', href: '/configuracoes', icon: Settings },
 ];
 

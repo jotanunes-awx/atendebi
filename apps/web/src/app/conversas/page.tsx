@@ -1,6 +1,7 @@
 'use client';
 
 import { Copy, Download, Filter, MessageSquareText } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { ConversationTimeline } from '@/components/conversation-timeline';
 import { DataTable } from '@/components/data-table';
@@ -11,38 +12,52 @@ import { StatusBadge } from '@/components/status-badge';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { Button } from '@/components/ui/button';
 import { ticketColumns, getTicketSearchValue, formatDateTime } from '@/components/ticket-columns';
-import { demoTickets, getDemoMessages, type DemoChannel, type DemoSentiment, type DemoTicket, type DemoTicketStatus } from '@/lib/demo-data';
+import { getConversationMessages, getTickets } from '@/lib/api-client';
+import { demoTickets, getDemoMessages, type DemoTicket } from '@/lib/demo-data';
 
-const allQueues = ['Todas', ...Array.from(new Set(demoTickets.map((ticket) => ticket.queue)))];
-const allAgents = ['Todos', ...Array.from(new Set(demoTickets.map((ticket) => ticket.agent)))];
-const allStatuses: Array<'Todos' | DemoTicketStatus> = ['Todos', 'OPEN', 'PENDING', 'CLOSED', 'CANCELED'];
-const allSentiments: Array<'Todos' | DemoSentiment> = ['Todos', 'positivo', 'neutro', 'negativo'];
-const allChannels: Array<'Todos' | DemoChannel> = ['Todos', ...Array.from(new Set(demoTickets.map((ticket) => ticket.channel)))];
-const allGroups = ['Todos', ...Array.from(new Set(demoTickets.map((ticket) => ticket.group)))];
-const allTags = ['Todas', ...Array.from(new Set(demoTickets.flatMap((ticket) => ticket.tags)))];
+const allStatuses = ['Todos', 'OPEN', 'PENDING', 'CLOSED', 'CANCELED'];
+const allSentiments = ['Todos', 'positivo', 'neutro', 'negativo'];
 
 export default function ConversasPage() {
   const [queue, setQueue] = useState('Todas');
   const [agent, setAgent] = useState('Todos');
-  const [status, setStatus] = useState<'Todos' | DemoTicketStatus>('Todos');
-  const [sentiment, setSentiment] = useState<'Todos' | DemoSentiment>('Todos');
-  const [channel, setChannel] = useState<'Todos' | DemoChannel>('Todos');
+  const [status, setStatus] = useState('Todos');
+  const [sentiment, setSentiment] = useState('Todos');
+  const [channel, setChannel] = useState('Todos');
   const [group, setGroup] = useState('Todos');
   const [tag, setTag] = useState('Todas');
-  const [selectedTicketId, setSelectedTicketId] = useState(demoTickets[0]?.id ?? '');
+  const [selectedTicketId, setSelectedTicketId] = useState('');
   const [detailTicket, setDetailTicket] = useState<DemoTicket | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const ticketsQuery = useQuery({
+    queryKey: ['conversation-tickets'],
+    queryFn: () => getTickets({ pageSize: 200 }),
+  });
+
+  const apiTickets = ticketsQuery.data?.data ?? [];
+  const usingApi = !ticketsQuery.isError && apiTickets.length > 0;
+  const tickets = useMemo(
+    () => (usingApi ? (apiTickets as unknown as DemoTicket[]) : demoTickets),
+    [apiTickets, usingApi],
+  );
+
+  const allQueues = useMemo(() => ['Todas', ...Array.from(new Set(tickets.map((ticket) => ticket.queue)))], [tickets]);
+  const allAgents = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.agent)))], [tickets]);
+  const allChannels = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.channel)))], [tickets]);
+  const allGroups = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.group)))], [tickets]);
+  const allTags = useMemo(() => ['Todas', ...Array.from(new Set(tickets.flatMap((ticket) => ticket.tags)))], [tickets]);
 
   useEffect(() => {
     const ticketFromUrl = new URLSearchParams(window.location.search).get('ticket');
 
-    if (ticketFromUrl && demoTickets.some((ticket) => ticket.id === ticketFromUrl)) {
+    if (ticketFromUrl) {
       setSelectedTicketId(ticketFromUrl);
     }
   }, []);
 
   const filteredTickets = useMemo(() => {
-    return demoTickets.filter((ticket) => {
+    return tickets.filter((ticket) => {
       return (
         (queue === 'Todas' || ticket.queue === queue) &&
         (agent === 'Todos' || ticket.agent === agent) &&
@@ -53,7 +68,7 @@ export default function ConversasPage() {
         (tag === 'Todas' || ticket.tags.includes(tag))
       );
     });
-  }, [agent, channel, group, queue, sentiment, status, tag]);
+  }, [agent, channel, group, queue, sentiment, status, tag, tickets]);
 
   useEffect(() => {
     if (filteredTickets.length > 0 && !filteredTickets.some((ticket) => ticket.id === selectedTicketId)) {
@@ -63,10 +78,22 @@ export default function ConversasPage() {
 
   const selectedTicket =
     filteredTickets.find((ticket) => ticket.id === selectedTicketId) ??
-    demoTickets.find((ticket) => ticket.id === selectedTicketId) ??
+    tickets.find((ticket) => ticket.id === selectedTicketId) ??
     filteredTickets[0] ??
-    demoTickets[0];
-  const messages = selectedTicket ? getDemoMessages(selectedTicket) : [];
+    tickets[0];
+
+  const messagesQuery = useQuery({
+    queryKey: ['conversation-messages', selectedTicket?.id],
+    queryFn: () => getConversationMessages(selectedTicket?.id ?? ''),
+    enabled: Boolean(selectedTicket?.id && usingApi),
+  });
+
+  const messages =
+    usingApi && messagesQuery.data?.data?.length
+      ? messagesQuery.data.data
+      : selectedTicket
+        ? getDemoMessages(selectedTicket)
+        : [];
 
   async function copyConversationLink(ticket: DemoTicket) {
     setCopied(true);
@@ -83,19 +110,22 @@ export default function ConversasPage() {
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
             Pesquise por cliente, telefone, ticket, fila, canal, grupo, tag ou sentimento. Ao clicar, a timeline completa fica aberta ao lado.
           </p>
+          <p className="mt-4 text-xs font-semibold text-primary">
+            Fonte: {usingApi ? 'Conectado a API real' : ticketsQuery.isLoading ? 'Carregando API' : 'Usando fallback local'}
+          </p>
         </div>
 
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-card-foreground">
             <Filter className="h-4 w-4 text-primary" aria-hidden="true" />
-            Filtros de investigação
+            Filtros de investigacao
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
             <FilterSelect label="Fila" value={queue} values={allQueues} onChange={setQueue} />
             <FilterSelect label="Atendente" value={agent} values={allAgents} onChange={setAgent} />
-            <FilterSelect label="Status" value={status} values={allStatuses} onChange={(value) => setStatus(value as 'Todos' | DemoTicketStatus)} />
-            <FilterSelect label="Sentimento" value={sentiment} values={allSentiments} onChange={(value) => setSentiment(value as 'Todos' | DemoSentiment)} />
-            <FilterSelect label="Canal" value={channel} values={allChannels} onChange={(value) => setChannel(value as 'Todos' | DemoChannel)} />
+            <FilterSelect label="Status" value={status} values={allStatuses} onChange={setStatus} />
+            <FilterSelect label="Sentimento" value={sentiment} values={allSentiments} onChange={setSentiment} />
+            <FilterSelect label="Canal" value={channel} values={allChannels} onChange={setChannel} />
             <FilterSelect label="Grupo" value={group} values={allGroups} onChange={setGroup} />
             <FilterSelect label="Tag" value={tag} values={allTags} onChange={setTag} />
           </div>
@@ -156,6 +186,7 @@ export default function ConversasPage() {
                     <span>Canal: <strong className="text-card-foreground">{selectedTicket.channel}</strong></span>
                     <span>Grupo: <strong className="text-card-foreground">{selectedTicket.group}</strong></span>
                     <span>Ultima msg: <strong className="text-card-foreground">{formatDateTime(selectedTicket.lastMessageAt)}</strong></span>
+                    <span>Mensagens: <strong className="text-card-foreground">{messages.length}</strong></span>
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -173,6 +204,9 @@ export default function ConversasPage() {
                   </div>
                 </div>
                 <div className="max-h-[620px] overflow-auto p-4">
+                  {messagesQuery.isLoading && usingApi ? (
+                    <p className="mb-3 text-xs font-semibold text-primary">Carregando mensagens da API...</p>
+                  ) : null}
                   <ConversationTimeline messages={messages} />
                 </div>
               </>

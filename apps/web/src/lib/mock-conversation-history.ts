@@ -1,20 +1,29 @@
 export type TicketHistoryItem = {
   id: string;
+  internalId?: string;
   customerName: string;
   customerContact: string;
   queue: string;
   agent: string;
-  status: string;
+  status: 'OPEN' | 'PENDING' | 'CLOSED' | 'CANCELED';
   resolutionStatus: string;
   rating: number;
   channel: string;
+  group: string;
   subject: string;
   signal: string;
-  sentiment: string;
+  sentiment: 'positivo' | 'neutro' | 'negativo';
+  risk: 'baixo' | 'medio' | 'alto';
   openedAt: string;
   lastMessageAt: string;
+  firstResponseMinutes: number;
+  waitMinutes: number;
   tags: string[];
   summary: string;
+  isComplaint: boolean;
+  isOpportunity: boolean;
+  botFallback: boolean;
+  unresolved: boolean;
 };
 
 export type ConversationMessage = {
@@ -31,13 +40,28 @@ export type ConversationMessagesResponse = {
   ticketId: string;
   summary: Pick<
     TicketHistoryItem,
-    'customerName' | 'queue' | 'agent' | 'status' | 'resolutionStatus' | 'rating' | 'sentiment' | 'tags' | 'summary'
+    | 'customerName'
+    | 'queue'
+    | 'agent'
+    | 'status'
+    | 'resolutionStatus'
+    | 'rating'
+    | 'sentiment'
+    | 'risk'
+    | 'tags'
+    | 'summary'
   >;
   data: ConversationMessage[];
 };
 
 export type TicketHistoryResponse = {
   data: TicketHistoryItem[];
+  meta?: {
+    total: number;
+    page?: number;
+    pageSize?: number;
+    type?: string;
+  };
 };
 
 export const mockConversationTickets: TicketHistoryItem[] = [
@@ -51,13 +75,21 @@ export const mockConversationTickets: TicketHistoryItem[] = [
     resolutionStatus: 'Em andamento',
     rating: 5,
     channel: 'WhatsApp',
+    group: 'Suporte Nivel 1',
     subject: 'Entrega atrasada',
     signal: 'Entrega',
-    sentiment: 'Neutro',
+    sentiment: 'neutro',
+    risk: 'baixo',
     openedAt: '2026-05-29T11:15:00.000Z',
     lastMessageAt: '2026-05-29T11:28:00.000Z',
+    firstResponseMinutes: 1,
+    waitMinutes: 13,
     tags: ['Entrega', 'Pedido', 'Suporte'],
     summary: 'Cliente pediu atualizacao de entrega e recebeu prazo atualizado do atendente.',
+    isComplaint: false,
+    isOpportunity: false,
+    botFallback: false,
+    unresolved: false,
   },
   {
     id: 'ticket-1002',
@@ -69,13 +101,21 @@ export const mockConversationTickets: TicketHistoryItem[] = [
     resolutionStatus: 'Nao solucionado',
     rating: 2,
     channel: 'WhatsApp',
+    group: 'Financeiro Critico',
     subject: 'Segunda via de boleto',
     signal: 'Nota baixa',
-    sentiment: 'Insatisfeito',
+    sentiment: 'negativo',
+    risk: 'alto',
     openedAt: '2026-05-29T12:40:00.000Z',
     lastMessageAt: '2026-05-29T13:05:00.000Z',
+    firstResponseMinutes: 15,
+    waitMinutes: 25,
     tags: ['Financeiro', 'Boleto', 'Risco'],
     summary: 'Cliente nao recebeu a segunda via no primeiro atendimento e demonstrou insatisfacao.',
+    isComplaint: true,
+    isOpportunity: false,
+    botFallback: true,
+    unresolved: true,
   },
   {
     id: 'ticket-1003',
@@ -87,13 +127,21 @@ export const mockConversationTickets: TicketHistoryItem[] = [
     resolutionStatus: 'Resolvido',
     rating: 5,
     channel: 'WhatsApp',
+    group: 'JotaVendas 1',
     subject: 'Negociacao comercial',
     signal: 'Venda',
-    sentiment: 'Positivo',
+    sentiment: 'positivo',
+    risk: 'baixo',
     openedAt: '2026-05-29T14:08:00.000Z',
     lastMessageAt: '2026-05-29T14:35:00.000Z',
+    firstResponseMinutes: 4,
+    waitMinutes: 27,
     tags: ['Comercial', 'Venda', 'Proposta'],
     summary: 'Cliente pediu condicoes comerciais e aceitou receber uma proposta formal.',
+    isComplaint: false,
+    isOpportunity: true,
+    botFallback: false,
+    unresolved: false,
   },
   {
     id: 'ticket-1004',
@@ -105,13 +153,21 @@ export const mockConversationTickets: TicketHistoryItem[] = [
     resolutionStatus: 'Risco de reclamacao',
     rating: 1,
     channel: 'WhatsApp',
+    group: 'Retencao VIP',
     subject: 'Cancelamento',
     signal: 'Risco',
-    sentiment: 'Insatisfeito',
+    sentiment: 'negativo',
+    risk: 'alto',
     openedAt: '2026-05-29T15:22:00.000Z',
     lastMessageAt: '2026-05-29T15:48:00.000Z',
+    firstResponseMinutes: 9,
+    waitMinutes: 26,
     tags: ['Cancelamento', 'Retencao', 'Reclamacao'],
     summary: 'Cliente pediu cancelamento apos demora no retorno e deve ser priorizado pela qualidade.',
+    isComplaint: true,
+    isOpportunity: false,
+    botFallback: true,
+    unresolved: true,
   },
 ];
 
@@ -286,6 +342,7 @@ function pickSummary(ticket: TicketHistoryItem): ConversationMessagesResponse['s
     resolutionStatus: ticket.resolutionStatus,
     rating: ticket.rating,
     sentiment: ticket.sentiment,
+    risk: ticket.risk,
     tags: ticket.tags,
     summary: ticket.summary,
   };

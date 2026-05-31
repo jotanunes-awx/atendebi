@@ -84,17 +84,33 @@ export async function getConversationMessages(ticketId: string): Promise<Convers
 
 export type QueueItem = {
   id: string;
+  internalId?: string;
   name: string;
   openTickets: number;
   averageWaitMinutes: number;
+  averageRating: number;
+  riskTickets: number;
+  ticketsHandled: number;
+  tickets?: TicketHistoryItem[];
+  agents?: Array<{
+    name: string;
+    openTickets: number;
+  }>;
 };
 
 export type AgentItem = {
   id: string;
+  internalId?: string;
   name: string;
+  email?: string | null;
   queue: string;
   ticketsHandled: number;
+  openTickets: number;
   averageRating: number;
+  resolutionRate: number;
+  firstResponseMinutes: number;
+  complaints: number;
+  tickets?: TicketHistoryItem[];
 };
 
 export type ApiListResponse<T> = {
@@ -149,7 +165,49 @@ export async function getAgent(id: string): Promise<AgentItem> {
   return response.json() as Promise<AgentItem>;
 }
 
-export async function getQualityOverview() {
+export type QualityOverview = {
+  averageRating: number;
+  totalRated: number;
+  lowRated: number;
+  negativeSentiment: number;
+  highRisk: number;
+  unresolved: number;
+  recurrentReasons: Array<{
+    label: string;
+    count: number;
+  }>;
+  recommendedActions: Array<{
+    title: string;
+    description: string;
+    tickets: number;
+  }>;
+  tickets: TicketHistoryItem[];
+};
+
+export type BotOverview = {
+  fallbackRate: number;
+  humanRequests: number;
+  abandonedFlows: number;
+  misunderstoodQuestions: number;
+  flows: Array<{
+    name: string;
+    total: number;
+    fallback: number;
+    fallbackRate: number;
+  }>;
+  failures: TicketHistoryItem[];
+};
+
+export type SalesOverview = {
+  opportunities: number;
+  leads: number;
+  proposals: number;
+  simulatedConversions: number;
+  lostByDelay: number;
+  tickets: TicketHistoryItem[];
+};
+
+export async function getQualityOverview(): Promise<QualityOverview> {
   const response = await fetch(`${apiBaseUrl}/quality/overview`, {
     headers: mockHeaders,
   });
@@ -161,7 +219,7 @@ export async function getQualityOverview() {
   return response.json();
 }
 
-export async function getBotOverview() {
+export async function getBotOverview(): Promise<BotOverview> {
   const response = await fetch(`${apiBaseUrl}/bot/overview`, {
     headers: mockHeaders,
   });
@@ -173,7 +231,7 @@ export async function getBotOverview() {
   return response.json();
 }
 
-export async function getSalesOverview() {
+export async function getSalesOverview(): Promise<SalesOverview> {
   const response = await fetch(`${apiBaseUrl}/sales/overview`, {
     headers: mockHeaders,
   });
