@@ -199,7 +199,7 @@ type PresentedTicket = ReturnType<typeof presentTicket>;
 function matchesDrilldownType(ticket: PresentedTicket, type: string) {
   switch (type) {
     case 'Atendimentos':
-      return ticket.status === 'OPEN' || ticket.status === 'PENDING';
+      return true;
     case 'Tempo medio':
       return ticket.firstResponseMinutes >= 7;
     case 'Nota media':

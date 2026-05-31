@@ -35,7 +35,7 @@ import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { Button } from '@/components/ui/button';
 import { ticketColumns, getTicketSearchValue, formatDateTime } from '@/components/ticket-columns';
 import { DashboardShell } from '@/components/dashboard-shell';
-import { getDashboardOverview } from '@/lib/api-client';
+import { getDashboardDrilldown, getDashboardOverview, getTickets } from '@/lib/api-client';
 import {
   demoAgentMetrics,
   demoChannelGroups,
@@ -106,7 +106,7 @@ function ticketDescription(rows: DemoTicket[]) {
   const open = rows.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING').length;
   const highRisk = rows.filter((ticket) => ticket.risk === 'alto').length;
 
-  return `${rows.length} registros na amostra demo, ${open} ainda abertos/pendentes e ${highRisk} com risco alto.`;
+  return `${rows.length} registros no recorte atual, ${open} ainda abertos/pendentes e ${highRisk} com risco alto.`;
 }
 
 export default function Home() {
@@ -162,6 +162,36 @@ export default function Home() {
     });
   }
 
+  async function openDashboardDrawer(title: string, fallbackRows: DemoTicket[], filters: DrawerState['filters'], description?: string) {
+    if (dashboardQuery.isError) {
+      openDrawer(title, fallbackRows, filters, description);
+      return;
+    }
+
+    try {
+      const response = await getDashboardDrilldown(title);
+      const rows = response.data as DemoTicket[];
+      openDrawer(title, rows, filters, description ?? ticketDescription(rows));
+    } catch {
+      openDrawer(title, fallbackRows, filters, description);
+    }
+  }
+
+  async function openQueueDrawer(queue: string, fallbackRows: DemoTicket[]) {
+    if (dashboardQuery.isError) {
+      openDrawer(`Fila ${queue}`, fallbackRows, [{ label: 'Fila', value: queue }]);
+      return;
+    }
+
+    try {
+      const response = await getTickets({ queue, pageSize: 100 });
+      const rows = response.data as DemoTicket[];
+      openDrawer(`Fila ${queue}`, rows, [{ label: 'Fila', value: queue }]);
+    } catch {
+      openDrawer(`Fila ${queue}`, fallbackRows, [{ label: 'Fila', value: queue }]);
+    }
+  }
+
   function openTicketDetail(ticket: DemoTicket, contextLabel?: string) {
     setSelectedTicketId(ticket.id);
     setDetail({ ticket, contextLabel });
@@ -191,7 +221,7 @@ export default function Home() {
               {...metric}
               icon={metricIcons[metric.icon]}
               onClick={() =>
-                openDrawer(metric.label, rows, [{ label: 'Indicador', value: metric.label }], ticketDescription(rows))
+                openDashboardDrawer(metric.label, rows, [{ label: 'Indicador', value: metric.label }])
               }
             />
           );
@@ -265,7 +295,7 @@ export default function Home() {
 
                     if (queue) {
                       const rows = getTicketsByQueue(queue);
-                      openDrawer(`Fila ${queue}`, rows, [{ label: 'Fila', value: queue }]);
+                      void openQueueDrawer(queue, rows);
                     }
                   }}
                 >
@@ -297,7 +327,7 @@ export default function Home() {
             type="button"
             className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-left transition-colors hover:border-warning/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() =>
-              openDrawer('Notas e qualidade', demoTickets.filter((ticket) => ticket.rating <= 2), [
+              void openDashboardDrawer('Nota media', demoTickets.filter((ticket) => ticket.rating <= 2), [
                 { label: 'Nota', value: '1 ou 2 estrelas' },
               ])
             }

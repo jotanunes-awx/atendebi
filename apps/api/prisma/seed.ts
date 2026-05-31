@@ -345,7 +345,7 @@ async function createTickets({
   contactRecords: Array<{ id: string; name: string | null; phone: string | null }>;
 }) {
   const createdTickets = [];
-  const baseDate = new Date('2026-05-30T08:00:00.000Z');
+  const baseDate = new Date('2026-05-28T08:00:00.000Z');
 
   for (let index = 0; index < 80; index += 1) {
     const queueSeed = queueSeeds[index % queueSeeds.length];

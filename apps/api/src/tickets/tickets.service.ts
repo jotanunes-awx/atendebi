@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
+import { isUuid } from '../common/data/id-filter';
 import { presentTicket, ticketInclude } from '../common/data/ticket-presenter';
 
 export type TicketFilters = {
@@ -58,7 +59,7 @@ export class TicketsService {
     const ticket = await this.prisma.ticket.findFirst({
       where: {
         tenantId,
-        OR: [{ id }, { externalId: id }],
+        OR: isUuid(id) ? [{ id }, { externalId: id }] : [{ externalId: id }],
       },
       include: ticketInclude,
     });

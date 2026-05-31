@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
+import { isUuid } from '../common/data/id-filter';
 import { presentTicket, ticketInclude } from '../common/data/ticket-presenter';
 
 @Injectable()
@@ -46,7 +47,7 @@ export class SupportQueuesService {
     const queue = await this.prisma.supportQueue.findFirst({
       where: {
         tenantId,
-        OR: [{ id }, { externalId: id }, { name: id }],
+        OR: isUuid(id) ? [{ id }, { externalId: id }, { name: id }] : [{ externalId: id }, { name: id }],
       },
       include: {
         tickets: {
