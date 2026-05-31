@@ -220,8 +220,8 @@ export type DashboardOverview = {
 };
 
 export const mockDashboardOverview: DashboardOverview = {
-  period: 'today',
-  periodLabel: 'Ultimas 24h',
+  period: 'last_30_days',
+  periodLabel: 'Ultimos 30 dias',
   updatedAt: '2026-05-29T23:45:00.000Z',
   source: 'mock',
   metrics: dashboardMetrics,

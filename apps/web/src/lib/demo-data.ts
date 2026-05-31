@@ -340,7 +340,9 @@ export const demoIntegrationStatus = {
   lastSyncAt: '2026-05-30T18:42:00.000Z',
   webhookUrl: 'http://localhost:3333/webhooks/blip/local-tenant',
   tenant: 'Jotanunes',
-  retentionDays: 180,
+  sourceRetentionDays: 90,
+  retentionDays: 730,
+  retentionPolicy: '24 meses em banco proprio por tenant',
   aiEstimatedCost: 'R$ 420,00/mes',
 };
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, Copy, Database, KeyRound, Layers3, PlugZap, ShieldCheck, UsersRound } from 'lucide-react';
+import { Archive, Bell, Copy, Database, KeyRound, Layers3, PlugZap, ShieldCheck, UsersRound } from 'lucide-react';
 import { useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { Button } from '@/components/ui/button';
@@ -121,6 +121,27 @@ export default function ConfiguracoesPage() {
           </div>
         </section>
 
+        <section className="rounded-lg border border-info/30 bg-info/10 p-5 shadow-panel">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex gap-3">
+              <Archive className="mt-0.5 h-5 w-5 shrink-0 text-info" aria-hidden="true" />
+              <div>
+                <h3 className="font-semibold text-card-foreground">Retencao historica do AtendeBI</h3>
+                <p className="mt-2 max-w-4xl text-sm leading-6 text-muted-foreground">
+                  O filtro do dashboard pode olhar 24h, 7 dias, 30 dias, 90 dias, 12 meses ou periodo personalizado.
+                  A ideia do produto nao e depender da retencao da plataforma origem: o AtendeBI recebe os eventos,
+                  normaliza e guarda historico proprio em PostgreSQL para BI, auditoria e comparacao mensal.
+                </p>
+              </div>
+            </div>
+            <div className="grid min-w-64 gap-2 text-sm sm:grid-cols-3 lg:grid-cols-1">
+              <ConfigRow label="Origem/Meta" value={`${demoIntegrationStatus.sourceRetentionDays} dias estimados`} />
+              <ConfigRow label="AtendeBI" value={demoIntegrationStatus.retentionPolicy} tone="success" />
+              <ConfigRow label="Uso" value="BI historico e auditoria" />
+            </div>
+          </div>
+        </section>
+
         <div className="grid gap-5 xl:grid-cols-3">
           <ConfigPanel
             icon={KeyRound}
@@ -144,7 +165,8 @@ export default function ConfiguracoesPage() {
             title="LGPD e retencao"
             description="Politicas esperadas para produto SaaS."
             rows={[
-              ['Retencao', `${demoIntegrationStatus.retentionDays} dias`],
+              ['Retencao AtendeBI', `${demoIntegrationStatus.retentionDays} dias`],
+              ['Retencao origem', `${demoIntegrationStatus.sourceRetentionDays} dias estimados`],
               ['Auditoria', 'audit_logs por tenant'],
               ['Dados sensiveis', 'Minimizacao e mascaramento futuro'],
               ['IA prevista', demoIntegrationStatus.aiEstimatedCost],
