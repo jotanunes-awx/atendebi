@@ -113,8 +113,14 @@ export class SettingsService {
       },
       integrations,
       security: {
-        authMode: 'Mock local preparado para Microsoft Entra ID',
-        tokenValidation: 'Mock headers no MVP; JWT/OIDC no piloto',
+        authMode:
+          this.configService.get<string>('AUTH_MODE', 'mock') === 'entra'
+            ? 'Microsoft Entra ID'
+            : 'Mock local com fallback para Entra ID',
+        tokenValidation:
+          this.configService.get<string>('AUTH_MODE', 'mock') === 'entra'
+            ? 'JWT Bearer validado via JWKS do Entra ID'
+            : 'Headers mockados no desenvolvimento; JWT/OIDC disponivel para homologacao',
         structuredAudit: true,
         maskSensitiveData: true,
         blipTokenInFrontend: false,

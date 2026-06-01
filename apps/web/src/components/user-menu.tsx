@@ -43,8 +43,8 @@ export function UserMenu() {
     return null;
   }
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     setOpen(false);
     router.push('/login');
   }

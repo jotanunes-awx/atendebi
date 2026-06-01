@@ -467,7 +467,7 @@ export function SecurityTab({
         <SectionTitle
           icon={ShieldCheck}
           title="Seguranca e autenticacao"
-          description="Camada atual mockada, preparada para Microsoft Entra ID e validacao de token na API."
+          description="Camada hibrida: mock para desenvolvimento e Microsoft Entra ID para homologacao."
         />
         <div className="mt-5 grid gap-3">
           <ConfigField label="Login atual" value={security?.authMode ?? 'Mock local com usuario Daniel Fernando'} />

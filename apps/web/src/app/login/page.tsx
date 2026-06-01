@@ -9,15 +9,18 @@ import { useAuth } from '@/lib/auth';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, isAuthenticated, isReady, login, logout } = useAuth();
+  const { user, isAuthenticated, isReady, authMode, authError, login, logout } = useAuth();
 
-  function handleLogin() {
-    login();
-    router.push('/');
+  async function handleLogin() {
+    const loggedIn = await login();
+
+    if (loggedIn) {
+      router.push('/');
+    }
   }
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     router.push('/login');
   }
 
@@ -44,8 +47,8 @@ export default function LoginPage() {
               Inteligencia operacional para atendimento conversacional.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
-              Ambiente local preparado para autenticação futura com Microsoft Entra ID, mantendo tenant, perfil e
-              permissões no mesmo formato que a API já espera.
+              Ambiente preparado para Microsoft Entra ID, mantendo tenant, perfil e permissões no mesmo formato que a
+              API já espera. Em desenvolvimento, o modo mock continua disponível.
             </p>
           </div>
 
@@ -60,7 +63,7 @@ export default function LoginPage() {
             </div>
             <div className="rounded-md border border-border bg-secondary p-3">
               <CheckCircle2 className="mb-3 h-4 w-4 text-primary" aria-hidden="true" />
-              Sessão local
+              {authMode === 'entra' ? 'Sessão Entra ID' : 'Sessão local'}
             </div>
           </div>
         </section>
@@ -73,10 +76,20 @@ export default function LoginPage() {
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               {isAuthenticated
-                ? 'Você já está autenticado no modo local.'
-                : 'Use a simulação corporativa para acessar o dashboard com o usuário demo.'}
+                ? authMode === 'entra'
+                  ? 'Você já está autenticado com Microsoft Entra ID.'
+                  : 'Você já está autenticado no modo local.'
+                : authMode === 'entra'
+                  ? 'Entre com sua conta corporativa para acessar a plataforma.'
+                  : 'Use a simulação corporativa para acessar o dashboard com o usuário demo.'}
             </p>
           </div>
+
+          {authError ? (
+            <div className="mt-6 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
+              {authError}
+            </div>
+          ) : null}
 
           <div className="mt-8 rounded-lg border border-border bg-secondary p-4">
             {isReady && isAuthenticated && user ? (
@@ -136,8 +149,9 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-6 rounded-md border border-border bg-background px-4 py-3 text-xs leading-5 text-muted-foreground">
-            Este login ainda é mockado. A integração real com Entra ID entra depois, sem mudar a experiência principal
-            do usuário.
+            {authMode === 'entra'
+              ? 'Login real via Entra ID habilitado. A API pode validar o Bearer token quando AUTH_MODE=entra.'
+              : 'Este ambiente está no modo mock. Para ativar Entra ID, configure NEXT_PUBLIC_AUTH_MODE=entra.'}
           </div>
         </section>
       </div>

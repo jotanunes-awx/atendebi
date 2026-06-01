@@ -1,12 +1,10 @@
+'use client';
+
+import { getApiAuthHeaders } from '@/lib/auth';
 import type { DashboardOverview } from '@/lib/mock-dashboard';
 import type { ConversationMessagesResponse, TicketHistoryResponse, TicketHistoryItem } from '@/lib/mock-conversation-history';
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333';
-
-const mockHeaders = {
-  'x-tenant-id': 'local-tenant',
-  'x-roles': 'ATENDEBI_ADMIN',
-};
 
 function toQueryString(filters?: Record<string, string | number | undefined>) {
   const params = new URLSearchParams();
@@ -22,9 +20,13 @@ function toQueryString(filters?: Record<string, string | number | undefined>) {
   return queryString ? `?${queryString}` : '';
 }
 
+async function getRequestHeaders() {
+  return getApiAuthHeaders();
+}
+
 export async function getDashboardOverview(filters?: Record<string, string | number | undefined>): Promise<DashboardOverview> {
   const response = await fetch(`${apiBaseUrl}/dashboard/overview${toQueryString(filters)}`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -36,7 +38,7 @@ export async function getDashboardOverview(filters?: Record<string, string | num
 
 export async function getDashboardDrilldown(type: string, filters?: Record<string, string | number | undefined>): Promise<TicketHistoryResponse> {
   const response = await fetch(`${apiBaseUrl}/dashboard/drilldown${toQueryString({ type, ...filters })}`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -48,7 +50,7 @@ export async function getDashboardDrilldown(type: string, filters?: Record<strin
 
 export async function getTickets(filters?: Record<string, string | number | undefined>): Promise<TicketHistoryResponse> {
   const response = await fetch(`${apiBaseUrl}/tickets${toQueryString(filters)}`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -60,7 +62,7 @@ export async function getTickets(filters?: Record<string, string | number | unde
 
 export async function getTicket(id: string): Promise<TicketHistoryItem> {
   const response = await fetch(`${apiBaseUrl}/tickets/${id}`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -72,7 +74,7 @@ export async function getTicket(id: string): Promise<TicketHistoryItem> {
 
 export async function getConversationMessages(ticketId: string): Promise<ConversationMessagesResponse> {
   const response = await fetch(`${apiBaseUrl}/conversations/${ticketId}/messages`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -119,7 +121,7 @@ export type ApiListResponse<T> = {
 
 export async function getQueues(): Promise<ApiListResponse<QueueItem>> {
   const response = await fetch(`${apiBaseUrl}/queues`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -131,7 +133,7 @@ export async function getQueues(): Promise<ApiListResponse<QueueItem>> {
 
 export async function getQueue(id: string): Promise<QueueItem> {
   const response = await fetch(`${apiBaseUrl}/queues/${id}`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -143,7 +145,7 @@ export async function getQueue(id: string): Promise<QueueItem> {
 
 export async function getAgents(): Promise<ApiListResponse<AgentItem>> {
   const response = await fetch(`${apiBaseUrl}/agents`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -155,7 +157,7 @@ export async function getAgents(): Promise<ApiListResponse<AgentItem>> {
 
 export async function getAgent(id: string): Promise<AgentItem> {
   const response = await fetch(`${apiBaseUrl}/agents/${id}`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -320,7 +322,7 @@ export type SettingsOverview = {
 
 export async function getQualityOverview(): Promise<QualityOverview> {
   const response = await fetch(`${apiBaseUrl}/quality/overview`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -332,7 +334,7 @@ export async function getQualityOverview(): Promise<QualityOverview> {
 
 export async function getBotOverview(): Promise<BotOverview> {
   const response = await fetch(`${apiBaseUrl}/bot/overview`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -344,7 +346,7 @@ export async function getBotOverview(): Promise<BotOverview> {
 
 export async function getSalesOverview(): Promise<SalesOverview> {
   const response = await fetch(`${apiBaseUrl}/sales/overview`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -356,7 +358,7 @@ export async function getSalesOverview(): Promise<SalesOverview> {
 
 export async function getSettingsOverview(): Promise<SettingsOverview> {
   const response = await fetch(`${apiBaseUrl}/settings/overview`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -368,7 +370,7 @@ export async function getSettingsOverview(): Promise<SettingsOverview> {
 
 export async function getIntegrations(): Promise<ApiListResponse<IntegrationSummary>> {
   const response = await fetch(`${apiBaseUrl}/integrations`, {
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -381,7 +383,7 @@ export async function getIntegrations(): Promise<ApiListResponse<IntegrationSumm
 export async function testIntegration(provider: IntegrationProvider): Promise<IntegrationTestResult> {
   const response = await fetch(`${apiBaseUrl}/integrations/${provider}/test`, {
     method: 'POST',
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -394,7 +396,7 @@ export async function testIntegration(provider: IntegrationProvider): Promise<In
 export async function syncIntegration(provider: IntegrationProvider): Promise<IntegrationSyncResult> {
   const response = await fetch(`${apiBaseUrl}/integrations/${provider}/sync`, {
     method: 'POST',
-    headers: mockHeaders,
+    headers: await getRequestHeaders(),
   });
 
   if (!response.ok) {

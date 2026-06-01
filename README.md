@@ -109,9 +109,14 @@ Providers aceitos em `/integrations/:provider`:
 - `GLPI`
 - `TEAMS_PHONE`
 
-## Permissoes no MVP
+## Autenticacao e permissoes
 
-A autenticacao real com Microsoft Entra ID ainda sera acoplada em fase futura. No MVP local, a API usa headers mockados para simular usuario, tenant e papeis:
+O AtendeBI suporta dois modos de autenticacao:
+
+- `AUTH_MODE=mock`: padrao do MVP local. A API usa headers para simular usuario, tenant e papeis.
+- `AUTH_MODE=entra`: a API valida `Authorization: Bearer <token>` emitido pelo Microsoft Entra ID.
+
+No modo local/mock:
 
 ```bash
 curl http://localhost:3333/dashboard/overview ^
@@ -119,6 +124,27 @@ curl http://localhost:3333/dashboard/overview ^
   -H "x-user-id: local-user" ^
   -H "x-roles: ATENDEBI_ADMIN"
 ```
+
+Para habilitar Entra ID real no frontend e na API, configure:
+
+```env
+AUTH_MODE=entra
+AUTH_TENANT_KEY=local-tenant
+ENTRA_TENANT_ID=ID_DO_DIRETORIO_LOCATARIO
+ENTRA_CLIENT_ID=ID_DO_APP_REGISTRATION_DO_FRONTEND
+ENTRA_API_AUDIENCE=api://ID_OU_URI_DA_API
+ENTRA_DEFAULT_ROLE=ATENDEBI_ADMIN
+
+NEXT_PUBLIC_AUTH_MODE=entra
+NEXT_PUBLIC_ENTRA_TENANT_ID=ID_DO_DIRETORIO_LOCATARIO
+NEXT_PUBLIC_ENTRA_CLIENT_ID=ID_DO_APP_REGISTRATION_DO_FRONTEND
+NEXT_PUBLIC_ENTRA_REDIRECT_URI=http://localhost:3000
+NEXT_PUBLIC_ENTRA_API_SCOPE=api://ID_OU_URI_DA_API/access_as_user
+NEXT_PUBLIC_ATENDEBI_TENANT_KEY=local-tenant
+NEXT_PUBLIC_ATENDEBI_DEFAULT_ROLE=ATENDEBI_ADMIN
+```
+
+No Azure, o App Registration usado para login precisa ter uma Redirect URI do tipo SPA para a URL do frontend e a API precisa expor um scope, por exemplo `access_as_user`. Enquanto os app roles corporativos nao forem configurados, `ENTRA_DEFAULT_ROLE` permite manter o piloto andando com um perfil padrao.
 
 Exemplos uteis depois do seed:
 
@@ -166,7 +192,7 @@ Regras iniciais:
 - Dashboard: admin, diretoria, gestor, qualidade e comercial.
 - Tickets e historico de conversas: todos os perfis, incluindo atendente.
 - Filas e atendentes: admin, diretoria, gestor e qualidade.
-- Healthcheck e webhook BLiP nao usam essas permissoes mockadas.
+- Healthcheck e webhook BLiP nao usam essas permissoes.
 
 ## Decisoes importantes do MVP
 
@@ -178,7 +204,7 @@ Regras iniciais:
 - O webhook tem validacao opcional de secret via header `x-atendebi-webhook-secret`.
 - O banco ja nasce multitenant, com `tenant_id` nas tabelas principais.
 - O AtendeBI guarda historico proprio em PostgreSQL para BI e auditoria, sem depender da retencao curta da plataforma origem.
-- Autenticacao real via Microsoft Entra ID sera acoplada depois; por enquanto existe um guard mockado para preparar os endpoints protegidos.
+- A autenticacao Entra ID ja esta preparada em modo hibrido: mock para desenvolvimento e Bearer token real para homologacao.
 - O modulo de IA fica previsto no banco, mas nao e executado no webhook nem no MVP inicial.
 
 ## Webhook BLiP no MVP local
@@ -306,11 +332,11 @@ O MVP local esta considerado fechado quando:
 
 ## Proximos passos para piloto
 
-1. Conectar autenticacao real com Microsoft Entra ID.
+1. Configurar App Registration de login com scope `access_as_user` e app roles AtendeBI.
 2. Expor a API local via tunnel HTTPS ou publicar ambiente de homologacao.
 3. Configurar webhook real no BLiP apontando para `/webhooks/blip/:tenantKey`.
-4. Refinar o conector GLPI com busca incremental, entidades, tecnicos reais e anexos/historico completo.
-5. Conectar Teams Phone via Microsoft Graph Call Records e relatarios de chamadas.
+4. Refinar o conector GLPI com anexos, historico completo e sincronismo incremental agendado.
+5. Refinar Teams Phone com filas reais, usuarios do Entra e reconciliacao com PABX.
 6. Capturar payloads reais e ajustar normalizacao fina dos conectores.
 7. Usar API do BLiP somente no backend para backfill/historico, quando necessario.
 8. Adicionar testes automatizados para webhook, idempotencia e permissoes.
