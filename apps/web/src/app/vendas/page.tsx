@@ -10,13 +10,22 @@ import { MetricCard } from '@/components/metric-card';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { getSalesOverview, getTickets, type SalesOverview } from '@/lib/api-client';
-import { demoTickets, type DemoTicket } from '@/lib/demo-data';
+import type { DemoTicket } from '@/lib/demo-data';
 
 type SalesDrawer = {
   title: string;
   description: string;
   rows: DemoTicket[];
   filters: Array<{ label: string; value: string }>;
+};
+
+const emptySalesOverview: SalesOverview = {
+  opportunities: 0,
+  leads: 0,
+  proposals: 0,
+  simulatedConversions: 0,
+  lostByDelay: 0,
+  tickets: [],
 };
 
 export default function VendasPage() {
@@ -32,9 +41,9 @@ export default function VendasPage() {
   });
 
   const apiTickets = ticketsQuery.data?.data ?? [];
-  const usingApi = !salesQuery.isError && !ticketsQuery.isError && Boolean(salesQuery.data);
-  const tickets = apiTickets.length > 0 ? (apiTickets as unknown as DemoTicket[]) : demoTickets;
-  const overview = salesQuery.data ?? buildFallbackSalesOverview(demoTickets);
+  const usingApi = !salesQuery.isError && !ticketsQuery.isError;
+  const tickets = apiTickets as unknown as DemoTicket[];
+  const overview = salesQuery.data ?? emptySalesOverview;
   const opportunityRows = overview.tickets.length > 0 ? (overview.tickets as unknown as DemoTicket[]) : tickets.filter((ticket) => ticket.isOpportunity);
   const proposalRows = tickets.filter((ticket) => ticket.isOpportunity && hasAnyTag(ticket, ['proposta']));
   const conversionRows = tickets.filter((ticket) => ticket.isOpportunity && ticket.status === 'CLOSED' && ticket.rating >= 4);
@@ -45,7 +54,7 @@ export default function VendasPage() {
       title,
       description: `${rows.length} conversas comerciais encontradas para investigar oportunidade, proposta, conversao ou perda.`,
       rows,
-      filters: [{ label: 'Recorte', value: label }, { label: 'Fonte', value: usingApi ? 'API real' : 'Fallback local' }],
+      filters: [{ label: 'Recorte', value: label }, { label: 'Fonte', value: usingApi ? 'API real' : 'API indisponivel' }],
     });
   }
 
@@ -59,7 +68,7 @@ export default function VendasPage() {
             Encontre conversas com intencao de compra, propostas solicitadas e perdas por demora sem transformar o AtendeBI em CRM.
           </p>
           <p className="mt-4 text-xs font-semibold text-primary">
-            Fonte: {usingApi ? 'Conectado a API real' : salesQuery.isLoading || ticketsQuery.isLoading ? 'Carregando API' : 'Usando fallback local'}
+            Fonte: {salesQuery.isLoading || ticketsQuery.isLoading ? 'Carregando API' : salesQuery.isError || ticketsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
           </p>
         </div>
 
@@ -195,21 +204,6 @@ function ActionCard({
       <span className="mt-2 block text-xs font-semibold text-primary">{rows.length} tickets relacionados</span>
     </button>
   );
-}
-
-function buildFallbackSalesOverview(tickets: DemoTicket[]): SalesOverview {
-  const opportunities = tickets.filter((ticket) => ticket.isOpportunity);
-  const proposals = opportunities.filter((ticket) => hasAnyTag(ticket, ['proposta']));
-  const lostByDelay = opportunities.filter((ticket) => ticket.firstResponseMinutes >= 8 || ticket.unresolved);
-
-  return {
-    opportunities: opportunities.length,
-    leads: opportunities.filter((ticket) => ['OPEN', 'PENDING'].includes(ticket.status)).length,
-    proposals: proposals.length,
-    simulatedConversions: opportunities.filter((ticket) => ticket.status === 'CLOSED' && ticket.rating >= 4).length,
-    lostByDelay: lostByDelay.length,
-    tickets: opportunities,
-  };
 }
 
 function hasAnyTag(ticket: DemoTicket, tags: string[]) {

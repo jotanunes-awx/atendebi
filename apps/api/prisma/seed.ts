@@ -126,6 +126,14 @@ const channels = ['WhatsApp', 'Webchat', 'Instagram', 'Facebook', 'Email'];
 const salesGroups = ['JotaVendas 1', 'JotaVendas 2', 'JotaVendas 3'];
 
 async function main() {
+  const demoDataEnabled = isEnabled(process.env.ATENDEBI_DEMO_DATA ?? process.env.DEMO_DATA_ENABLED);
+  const blipEnabled = isEnabled(process.env.BLIP_ENABLED);
+  const glpiConfigured = Boolean(process.env.GLPI_BASE_URL && process.env.GLPI_APP_TOKEN && process.env.GLPI_USER_TOKEN);
+  const teamsConfigured = Boolean(
+    isConfiguredEnvValue(process.env.TEAMS_TENANT_ID) &&
+      isConfiguredEnvValue(process.env.TEAMS_CLIENT_ID) &&
+      process.env.TEAMS_CLIENT_SECRET,
+  );
   const tenant = await prisma.tenant.upsert({
     where: { key: 'local-tenant' },
     update: {
@@ -201,9 +209,9 @@ async function main() {
     },
     update: {
       tenantKey: 'local-tenant',
-      isActive: true,
+      isActive: blipEnabled,
       settings: {
-        mode: 'demo',
+        mode: blipEnabled ? 'webhook-ready' : 'waiting-access',
         webhookSecretRequired: false,
         sourceRetentionDays: 90,
         atendebiRetentionDays: 730,
@@ -214,9 +222,9 @@ async function main() {
       provider: IntegrationProvider.BLIP,
       name: 'BLiP Demo',
       tenantKey: 'local-tenant',
-      isActive: true,
+      isActive: blipEnabled,
       settings: {
-        mode: 'demo',
+        mode: blipEnabled ? 'webhook-ready' : 'waiting-access',
         webhookSecretRequired: false,
         sourceRetentionDays: 90,
         atendebiRetentionDays: 730,
@@ -234,9 +242,9 @@ async function main() {
     },
     update: {
       externalId: 'glpi-local',
-      isActive: Boolean(process.env.GLPI_BASE_URL),
+      isActive: glpiConfigured,
       settings: {
-        mode: process.env.GLPI_BASE_URL ? 'configured' : 'ready-to-configure',
+        mode: glpiConfigured ? 'configured' : 'ready-to-configure',
         baseUrl: process.env.GLPI_BASE_URL ?? '',
         apiPath: '/apirest.php',
         authMethod: 'app-token + user-token',
@@ -251,9 +259,9 @@ async function main() {
       provider: IntegrationProvider.GLPI,
       name: 'GLPI Homologacao',
       externalId: 'glpi-local',
-      isActive: Boolean(process.env.GLPI_BASE_URL),
+      isActive: glpiConfigured,
       settings: {
-        mode: process.env.GLPI_BASE_URL ? 'configured' : 'ready-to-configure',
+        mode: glpiConfigured ? 'configured' : 'ready-to-configure',
         baseUrl: process.env.GLPI_BASE_URL ?? '',
         apiPath: '/apirest.php',
         authMethod: 'app-token + user-token',
@@ -275,9 +283,9 @@ async function main() {
     },
     update: {
       externalId: 'teams-phone-local',
-      isActive: Boolean(process.env.TEAMS_TENANT_ID && process.env.TEAMS_CLIENT_ID && process.env.TEAMS_CLIENT_SECRET),
+      isActive: teamsConfigured,
       settings: {
-        mode: process.env.TEAMS_CLIENT_SECRET ? 'configured' : 'waiting-admin-consent',
+        mode: teamsConfigured ? 'configured' : 'waiting-admin-consent',
         tenantId: process.env.TEAMS_TENANT_ID ?? '',
         clientId: process.env.TEAMS_CLIENT_ID ?? '',
         authMethod: 'Microsoft Graph application permissions',
@@ -293,9 +301,9 @@ async function main() {
       provider: IntegrationProvider.TEAMS_PHONE,
       name: 'Teams Phone / PABX',
       externalId: 'teams-phone-local',
-      isActive: Boolean(process.env.TEAMS_TENANT_ID && process.env.TEAMS_CLIENT_ID && process.env.TEAMS_CLIENT_SECRET),
+      isActive: teamsConfigured,
       settings: {
-        mode: process.env.TEAMS_CLIENT_SECRET ? 'configured' : 'waiting-admin-consent',
+        mode: teamsConfigured ? 'configured' : 'waiting-admin-consent',
         tenantId: process.env.TEAMS_TENANT_ID ?? '',
         clientId: process.env.TEAMS_CLIENT_ID ?? '',
         authMethod: 'Microsoft Graph application permissions',
@@ -309,6 +317,29 @@ async function main() {
   });
 
   await clearDemoOperationalData(tenant.id);
+
+  if (!demoDataEnabled) {
+    await prisma.auditLog.create({
+      data: {
+        tenantId: tenant.id,
+        userId: admin.id,
+        action: 'seed.config.completed',
+        entityType: 'tenant',
+        entityId: tenant.id,
+        metadata: {
+          demoDataEnabled,
+          integrations: {
+            blipEnabled,
+            glpiConfigured,
+            teamsConfigured,
+          },
+        },
+      },
+    });
+
+    console.log(`Seed AtendeBI concluido: tenant=${tenant.key}, demoData=false`);
+    return;
+  }
 
   const queues = await Promise.all(
     queueSeeds.map((queue) =>
@@ -398,19 +429,50 @@ async function main() {
 }
 
 async function clearDemoOperationalData(tenantId: string) {
-  await prisma.ticketTag.deleteMany({ where: { tenantId } });
-  await prisma.aiAnalysis.deleteMany({ where: { tenantId } });
-  await prisma.rating.deleteMany({ where: { tenantId } });
-  await prisma.message.deleteMany({ where: { tenantId } });
-  await prisma.ticket.deleteMany({ where: { tenantId } });
-  await prisma.contact.deleteMany({ where: { tenantId } });
-  await prisma.agent.deleteMany({ where: { tenantId } });
-  await prisma.supportQueue.deleteMany({ where: { tenantId } });
-  await prisma.tag.deleteMany({ where: { tenantId } });
+  const demoTickets = await prisma.ticket.findMany({
+    where: { tenantId, externalId: { startsWith: 'ticket-demo-' } },
+    select: { id: true },
+  });
+  const demoContacts = await prisma.contact.findMany({
+    where: { tenantId, externalId: { startsWith: 'contact-demo-' } },
+    select: { id: true },
+  });
+  const demoTicketIds = demoTickets.map((ticket) => ticket.id);
+  const demoContactIds = demoContacts.map((contact) => contact.id);
+
+  await prisma.ticketTag.deleteMany({ where: { tenantId, ticketId: { in: demoTicketIds } } });
+  await prisma.aiAnalysis.deleteMany({
+    where: {
+      tenantId,
+      OR: [{ ticketId: { in: demoTicketIds } }, { contactId: { in: demoContactIds } }],
+    },
+  });
+  await prisma.rating.deleteMany({ where: { tenantId, ticketId: { in: demoTicketIds } } });
+  await prisma.message.deleteMany({
+    where: {
+      tenantId,
+      OR: [{ ticketId: { in: demoTicketIds } }, { externalId: { startsWith: 'ticket-demo-' } }],
+    },
+  });
+  await prisma.ticket.deleteMany({ where: { tenantId, id: { in: demoTicketIds } } });
+  await prisma.contact.deleteMany({ where: { tenantId, id: { in: demoContactIds } } });
+  await prisma.agent.deleteMany({
+    where: { tenantId, externalId: { in: agentSeeds.map((agent) => agent.externalId) } },
+  });
+  await prisma.supportQueue.deleteMany({
+    where: { tenantId, externalId: { in: queueSeeds.map((queue) => queue.externalId) } },
+  });
+  await prisma.tag.deleteMany({ where: { tenantId, name: { in: Object.keys(tagColors) } } });
+  await prisma.rawEvent.deleteMany({
+    where: {
+      tenantId,
+      eventType: 'integration.sync.requested',
+    },
+  });
   await prisma.auditLog.deleteMany({
     where: {
       tenantId,
-      action: { startsWith: 'seed.demo' },
+      OR: [{ action: { startsWith: 'seed.demo' } }, { action: 'integration.sync.dry_run' }],
     },
   });
 }
@@ -732,6 +794,18 @@ function normalizeSlug(value: string) {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '.')
     .replace(/(^\.|\.$)/g, '');
+}
+
+function isEnabled(value?: string) {
+  return ['true', '1', 'yes', 'sim'].includes(value?.trim().toLowerCase() ?? '');
+}
+
+function isConfiguredEnvValue(value?: string) {
+  if (!value) {
+    return false;
+  }
+
+  return !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(value.trim());
 }
 
 main()

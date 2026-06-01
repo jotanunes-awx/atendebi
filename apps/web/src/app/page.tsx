@@ -35,21 +35,9 @@ import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { Button } from '@/components/ui/button';
 import { ticketColumns, getTicketSearchValue, formatDateTime } from '@/components/ticket-columns';
 import { DashboardShell } from '@/components/dashboard-shell';
-import { getDashboardDrilldown, getDashboardOverview, getTickets } from '@/lib/api-client';
-import {
-  demoAgentMetrics,
-  demoChannelGroups,
-  demoConversationGroups,
-  demoOperationalRisks,
-  demoTickets,
-  getDashboardTickets,
-  getDemoMessages,
-  getTicketsByAgent,
-  getTicketsByHour,
-  getTicketsByQueue,
-  type DemoTicket,
-} from '@/lib/demo-data';
-import { mockDashboardOverview, type MetricIconKey } from '@/lib/mock-dashboard';
+import { getConversationMessages, getDashboardDrilldown, getDashboardOverview, getTickets } from '@/lib/api-client';
+import type { DemoTicket } from '@/lib/demo-data';
+import type { DashboardOverview, MetricIconKey } from '@/lib/mock-dashboard';
 import { useTheme } from '@/lib/theme';
 
 type ChartClickState = {
@@ -82,6 +70,31 @@ const metricIcons = {
   message: MessageCircle,
   sale: ShoppingCart,
 } satisfies Record<MetricIconKey, typeof TicketCheck>;
+
+const emptyDashboardOverview: DashboardOverview = {
+  period: 'last_30_days',
+  periodLabel: 'Dados sincronizados',
+  updatedAt: new Date().toISOString(),
+  source: 'api',
+  metrics: [
+    { label: 'Atendimentos', value: '0', detail: '0 ainda abertos', tone: 'neutral', icon: 'tickets' },
+    { label: 'Tempo medio', value: '0 min', detail: 'Primeira resposta', tone: 'neutral', icon: 'clock' },
+    { label: 'Nota media', value: '0', detail: 'Baseada nas avaliacoes', tone: 'neutral', icon: 'star' },
+    { label: 'Reclamacoes', value: '0', detail: 'Prioridade para qualidade', tone: 'neutral', icon: 'alert' },
+    { label: 'Fallback do bot', value: '0%', detail: 'Conversas transferidas', tone: 'neutral', icon: 'message' },
+    { label: 'Oportunidades', value: '0', detail: 'Sinais comerciais', tone: 'neutral', icon: 'sale' },
+  ],
+  hourlyTicketVolume: [],
+  queueAttentionData: [],
+  qualitySummary: { averageRating: 0, totalRated: 0, lowRated: 0, unresolved: 0, reopened: 0, aiConfidence: 0 },
+  qualitySignals: [],
+  operationalRisks: [],
+  improvementSuggestions: [],
+  agentPerformance: [],
+  recurringTopics: [],
+  resolutionFunnel: [],
+  conversations: [],
+};
 
 function RatingStars({ rating }: { rating: number }) {
   return (
@@ -117,40 +130,52 @@ export default function Home() {
   const [detail, setDetail] = useState<TicketDetailState | null>(null);
   const [historyGroup, setHistoryGroup] = useState('Todos');
   const [historyChannel, setHistoryChannel] = useState('Todos');
-  const [selectedTicketId, setSelectedTicketId] = useState(demoTickets[0]?.id ?? '');
+  const [selectedTicketId, setSelectedTicketId] = useState('');
 
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'overview'],
     queryFn: () => getDashboardOverview(),
+  });
+  const ticketsQuery = useQuery({
+    queryKey: ['dashboard', 'tickets'],
+    queryFn: () => getTickets({ pageSize: 300 }),
   });
 
   useEffect(() => {
     setChartsReady(true);
   }, []);
 
-  const dashboard = dashboardQuery.data ?? mockDashboardOverview;
+  const dashboard = dashboardQuery.data ?? emptyDashboardOverview;
+  const liveTickets = useMemo(() => (ticketsQuery.data?.data ?? []) as unknown as DemoTicket[], [ticketsQuery.data?.data]);
+  const historyGroups = useMemo(() => buildHistoryGroups(liveTickets), [liveTickets]);
+  const historyChannels = useMemo(() => buildHistoryChannels(liveTickets), [liveTickets]);
   const selectedTicket = useMemo(
-    () => demoTickets.find((ticket) => ticket.id === selectedTicketId) ?? demoTickets[0],
-    [selectedTicketId],
+    () => liveTickets.find((ticket) => ticket.id === selectedTicketId) ?? liveTickets[0],
+    [liveTickets, selectedTicketId],
   );
   const historyTickets = useMemo(() => {
-    return demoTickets.filter((ticket) => {
+    return liveTickets.filter((ticket) => {
       return (
         (historyGroup === 'Todos' || ticket.group === historyGroup) &&
         (historyChannel === 'Todos' || ticket.channel === historyChannel)
       );
     });
-  }, [historyChannel, historyGroup]);
+  }, [historyChannel, historyGroup, liveTickets]);
   useEffect(() => {
     if (historyTickets.length > 0 && !historyTickets.some((ticket) => ticket.id === selectedTicketId)) {
       setSelectedTicketId(historyTickets[0].id);
     }
   }, [historyTickets, selectedTicketId]);
-  const selectedMessages = selectedTicket ? getDemoMessages(selectedTicket) : [];
-  const statusLabel = dashboardQuery.isLoading
+  const selectedMessagesQuery = useQuery({
+    queryKey: ['dashboard-history-messages', selectedTicket?.id],
+    queryFn: () => getConversationMessages(selectedTicket?.id ?? ''),
+    enabled: Boolean(selectedTicket?.id && !ticketsQuery.isError),
+  });
+  const selectedMessages = selectedMessagesQuery.data?.data ?? [];
+  const statusLabel = dashboardQuery.isLoading || ticketsQuery.isLoading
     ? 'Carregando API'
-    : dashboardQuery.isError
-      ? 'Usando fallback local'
+    : dashboardQuery.isError || ticketsQuery.isError
+      ? 'API indisponivel'
       : 'Conectado a API';
 
   function openDrawer(title: string, rows: DemoTicket[], filters: DrawerState['filters'], description?: string) {
@@ -213,7 +238,7 @@ export default function Home() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {dashboard.metrics.map((metric) => {
-          const rows = getDashboardTickets(metric.label);
+          const rows = getRowsForMetric(metric.label, liveTickets);
 
           return (
             <MetricCard
@@ -245,7 +270,7 @@ export default function Home() {
                   onClick={(state: ChartClickState) => {
                     if (state.activeLabel) {
                       const hourLabel = String(state.activeLabel);
-                      const rows = getTicketsByHour(hourLabel);
+                      const rows = getRowsForHour(hourLabel, liveTickets);
                       openDrawer(`Volume ${hourLabel}`, rows, [{ label: 'Hora', value: hourLabel }]);
                     }
                   }}
@@ -294,7 +319,7 @@ export default function Home() {
                     const queue = state.activePayload?.[0]?.payload?.name;
 
                     if (queue) {
-                      const rows = getTicketsByQueue(queue);
+                      const rows = liveTickets.filter((ticket) => ticket.queue === queue);
                       void openQueueDrawer(queue, rows);
                     }
                   }}
@@ -327,7 +352,7 @@ export default function Home() {
             type="button"
             className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-left transition-colors hover:border-warning/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() =>
-              void openDashboardDrawer('Nota media', demoTickets.filter((ticket) => ticket.rating <= 2), [
+              void openDashboardDrawer('Nota media', getQualityConcernRows(liveTickets), [
                 { label: 'Nota', value: '1 ou 2 estrelas' },
               ])
             }
@@ -372,17 +397,22 @@ export default function Home() {
                 <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden="true" />
               </div>
               <div className="mt-4 space-y-3">
-                {demoOperationalRisks.map((risk) => (
+                {dashboard.operationalRisks.map((risk) => (
                   <button
                     key={risk.label}
                     type="button"
                     className="flex w-full items-center justify-between gap-3 rounded-md bg-secondary px-3 py-2 text-left transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => openDrawer(risk.label, risk.tickets, [{ label: 'Risco', value: risk.label }])}
+                    onClick={() => openDrawer(risk.label, getRowsForRisk(risk.label, liveTickets), [{ label: 'Risco', value: risk.label }])}
                   >
                     <span className="text-sm font-medium text-muted-foreground">{risk.label}</span>
-                    <span className="text-sm font-semibold text-card-foreground">{risk.count}</span>
+                    <span className="text-sm font-semibold text-card-foreground">{risk.value}</span>
                   </button>
                 ))}
+                {dashboard.operationalRisks.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border bg-secondary p-3 text-sm leading-6 text-muted-foreground">
+                    Sem riscos calculados ainda.
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -403,11 +433,7 @@ export default function Home() {
                     onClick={() =>
                       openDrawer(
                         `Base da sugestao ${index + 1}`,
-                        index === 0
-                          ? demoTickets.filter((ticket) => ticket.botFallback || ticket.tags.includes('entrega'))
-                          : index === 1
-                            ? demoTickets.filter((ticket) => ticket.waitMinutes >= 8)
-                            : demoTickets.filter((ticket) => ticket.risk !== 'baixo'),
+                        getRowsForSuggestion(index, liveTickets),
                         [{ label: 'Insight', value: `Sugestao ${index + 1}` }],
                         suggestion,
                       )
@@ -417,6 +443,11 @@ export default function Home() {
                     <span className="text-sm text-muted-foreground">{suggestion}</span>
                   </button>
                 ))}
+                {dashboard.improvementSuggestions.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border bg-card p-3 text-sm leading-6 text-muted-foreground">
+                    Sem sugestoes ainda. Elas serao geradas com base nos dados sincronizados.
+                  </div>
+                ) : null}
               </div>
               <div className="mt-4 flex items-center gap-2 text-sm font-medium text-primary">
                 <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
@@ -434,12 +465,12 @@ export default function Home() {
             <p className="text-sm text-muted-foreground">Clique no atendente para ver carteira atual</p>
           </div>
           <div className="space-y-3">
-            {demoAgentMetrics.slice(0, 3).map((agent) => (
+            {dashboard.agentPerformance.slice(0, 3).map((agent) => (
               <button
                 key={agent.name}
                 type="button"
                 className="w-full rounded-md border border-border p-3 text-left transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => openDrawer(agent.name, getTicketsByAgent(agent.name), [{ label: 'Atendente', value: agent.name }])}
+                onClick={() => openDrawer(agent.name, liveTickets.filter((ticket) => ticket.agent === agent.name), [{ label: 'Atendente', value: agent.name }])}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -447,11 +478,11 @@ export default function Home() {
                     <p className="text-sm text-muted-foreground">{agent.queue}</p>
                   </div>
                   <span className="rounded-md bg-success/10 px-2 py-1 text-sm font-semibold text-success">
-                    {agent.averageRating.toString().replace('.', ',')}
+                    {agent.rating.toString().replace('.', ',')}
                   </span>
                 </div>
                 <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
-                  <span>{agent.openTickets} abertos</span>
+                  <span>{agent.tickets} tickets</span>
                   <span>{agent.resolutionRate}% resolucao</span>
                 </div>
                 <div className="mt-2 h-2 rounded-full bg-muted">
@@ -459,6 +490,11 @@ export default function Home() {
                 </div>
               </button>
             ))}
+            {dashboard.agentPerformance.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border bg-secondary p-3 text-sm leading-6 text-muted-foreground">
+                Nenhum atendente/tecnico sincronizado ainda.
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -476,7 +512,7 @@ export default function Home() {
                 onClick={() =>
                   openDrawer(
                     topic.label,
-                    demoTickets.filter((ticket) => ticket.subject.toLowerCase().includes(topic.label.split(' ')[0].toLowerCase()) || ticket.tags.join(' ').toLowerCase().includes(topic.label.split(' ')[0].toLowerCase())),
+                    getRowsForTopic(topic.label, liveTickets),
                     [{ label: 'Assunto', value: topic.label }],
                   )
                 }
@@ -490,6 +526,11 @@ export default function Home() {
                 </div>
               </button>
             ))}
+            {dashboard.recurringTopics.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border bg-secondary p-3 text-sm leading-6 text-muted-foreground">
+                Nenhum assunto recorrente identificado ainda.
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -500,12 +541,7 @@ export default function Home() {
           </div>
           <div className="space-y-3">
             {dashboard.resolutionFunnel.map((step) => {
-              const rows =
-                step.label === 'Sem solucao'
-                  ? demoTickets.filter((ticket) => ticket.unresolved)
-                  : step.label.includes('Transferidos')
-                    ? demoTickets.filter((ticket) => ticket.botFallback)
-                    : demoTickets;
+              const rows = getRowsForFunnel(step.label, liveTickets);
 
               return (
                 <button
@@ -524,6 +560,11 @@ export default function Home() {
                 </button>
               );
             })}
+            {dashboard.resolutionFunnel.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border bg-secondary p-3 text-sm leading-6 text-muted-foreground">
+                O funil aparece depois que houver tickets sincronizados.
+              </div>
+            ) : null}
           </div>
         </section>
       </div>
@@ -538,7 +579,7 @@ export default function Home() {
           </div>
           <div className="flex w-fit items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
             <History className="h-4 w-4" aria-hidden="true" />
-            {historyTickets.length} de {demoTickets.length} conversas
+            {historyTickets.length} de {liveTickets.length} registros
           </div>
         </div>
 
@@ -559,7 +600,7 @@ export default function Home() {
                 </button>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {demoConversationGroups.slice(0, 8).map((group) => {
+                {historyGroups.slice(0, 8).map((group) => {
                   const selected = historyGroup === group.name;
 
                   return (
@@ -579,6 +620,11 @@ export default function Home() {
                     </button>
                   );
                 })}
+                {historyGroups.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border bg-secondary p-4 text-sm leading-6 text-muted-foreground sm:col-span-2 xl:col-span-4">
+                    Nenhum grupo real ainda. Eles serao montados a partir dos campos de grupo/canal das integracoes.
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -596,7 +642,7 @@ export default function Home() {
                 >
                   Todos
                 </button>
-                {demoChannelGroups.map((channel) => (
+                {historyChannels.map((channel) => (
                   <button
                     key={channel.id}
                     type="button"
@@ -720,4 +766,175 @@ export default function Home() {
       />
     </DashboardShell>
   );
+}
+
+function getRowsForMetric(label: string, tickets: DemoTicket[]) {
+  if (label === 'Tempo medio') {
+    return tickets.filter((ticket) => ticket.firstResponseMinutes >= 7 || ticket.waitMinutes >= 7);
+  }
+
+  if (label === 'Nota media') {
+    return tickets.filter((ticket) => ticket.rating > 0);
+  }
+
+  if (label === 'Reclamacoes') {
+    return tickets.filter((ticket) => ticket.isComplaint || ticket.sentiment === 'negativo' || ticket.risk === 'alto');
+  }
+
+  if (label === 'Fallback do bot') {
+    return tickets.filter((ticket) => ticket.botFallback);
+  }
+
+  if (label === 'Oportunidades') {
+    return tickets.filter((ticket) => ticket.isOpportunity);
+  }
+
+  return tickets;
+}
+
+function getRowsForHour(hourLabel: string, tickets: DemoTicket[]) {
+  const hour = Number(hourLabel.replace(/\D/g, ''));
+
+  return tickets.filter((ticket) => new Date(ticket.openedAt).getUTCHours() === hour);
+}
+
+function getQualityConcernRows(tickets: DemoTicket[]) {
+  return tickets.filter(
+    (ticket) => ticket.rating <= 2 || ticket.unresolved || ticket.sentiment === 'negativo' || ticket.risk === 'alto',
+  );
+}
+
+function getRowsForRisk(label: string, tickets: DemoTicket[]) {
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes('nota')) {
+    return tickets.filter((ticket) => ticket.rating > 0 && ticket.rating <= 2);
+  }
+
+  if (normalized.includes('humano') || normalized.includes('bot')) {
+    return tickets.filter((ticket) => ticket.botFallback);
+  }
+
+  if (normalized.includes('tag')) {
+    return tickets.filter((ticket) => ticket.tags.length === 0);
+  }
+
+  if (normalized.includes('prioridade') || normalized.includes('risco')) {
+    return tickets.filter((ticket) => ticket.risk === 'alto');
+  }
+
+  if (normalized.includes('aberto') || normalized.includes('pendente')) {
+    return tickets.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING');
+  }
+
+  return tickets.filter((ticket) => ticket.risk !== 'baixo' || ticket.unresolved);
+}
+
+function getRowsForSuggestion(index: number, tickets: DemoTicket[]) {
+  if (index === 0) {
+    return tickets.filter((ticket) => ticket.risk === 'alto' || ticket.unresolved || ticket.rating <= 2);
+  }
+
+  if (index === 1) {
+    return tickets.filter((ticket) => ticket.waitMinutes >= 8 || ticket.firstResponseMinutes >= 8);
+  }
+
+  return tickets.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING');
+}
+
+function getRowsForTopic(label: string, tickets: DemoTicket[]) {
+  const keyword = label.split(' ')[0]?.toLowerCase() ?? label.toLowerCase();
+
+  return tickets.filter((ticket) => {
+    const source = `${ticket.subject} ${ticket.summary} ${ticket.tags.join(' ')}`.toLowerCase();
+
+    return source.includes(keyword);
+  });
+}
+
+function getRowsForFunnel(label: string, tickets: DemoTicket[]) {
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes('pendente')) {
+    return tickets.filter((ticket) => ticket.status === 'PENDING');
+  }
+
+  if (normalized.includes('andamento') || normalized.includes('aberto')) {
+    return tickets.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING');
+  }
+
+  if (normalized.includes('resolvido') || normalized.includes('fechado')) {
+    return tickets.filter((ticket) => ticket.status === 'CLOSED' && !ticket.unresolved);
+  }
+
+  if (normalized.includes('cancel') || normalized.includes('sem solucao')) {
+    return tickets.filter((ticket) => ticket.status === 'CANCELED' || ticket.unresolved);
+  }
+
+  return tickets;
+}
+
+function buildHistoryGroups(tickets: DemoTicket[]) {
+  const groups = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      openTickets: number;
+      highRiskTickets: number;
+      channels: string[];
+      channelSet: Set<string>;
+    }
+  >();
+
+  for (const ticket of tickets) {
+    const current = groups.get(ticket.group) ?? {
+      id: slug(ticket.group),
+      name: ticket.group,
+      openTickets: 0,
+      highRiskTickets: 0,
+      channels: [],
+      channelSet: new Set<string>(),
+    };
+
+    if (ticket.status === 'OPEN' || ticket.status === 'PENDING') {
+      current.openTickets += 1;
+    }
+
+    if (ticket.risk === 'alto') {
+      current.highRiskTickets += 1;
+    }
+
+    if (ticket.channel && !current.channelSet.has(ticket.channel)) {
+      current.channelSet.add(ticket.channel);
+      current.channels.push(ticket.channel);
+    }
+
+    groups.set(ticket.group, current);
+  }
+
+  return Array.from(groups.values()).map(({ channelSet, ...group }) => group);
+}
+
+function buildHistoryChannels(tickets: DemoTicket[]) {
+  const counts = new Map<string, number>();
+
+  for (const ticket of tickets) {
+    counts.set(ticket.channel, (counts.get(ticket.channel) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries()).map(([name, tickets]) => ({
+    id: slug(name),
+    name,
+    tickets,
+  }));
+}
+
+function slug(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }

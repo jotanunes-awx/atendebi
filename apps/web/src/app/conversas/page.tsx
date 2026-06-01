@@ -13,7 +13,7 @@ import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { Button } from '@/components/ui/button';
 import { ticketColumns, getTicketSearchValue, formatDateTime } from '@/components/ticket-columns';
 import { getConversationMessages, getTickets } from '@/lib/api-client';
-import { demoTickets, getDemoMessages, type DemoTicket } from '@/lib/demo-data';
+import type { DemoTicket } from '@/lib/demo-data';
 
 const allStatuses = ['Todos', 'OPEN', 'PENDING', 'CLOSED', 'CANCELED'];
 const allSentiments = ['Todos', 'positivo', 'neutro', 'negativo'];
@@ -36,11 +36,8 @@ export default function ConversasPage() {
   });
 
   const apiTickets = ticketsQuery.data?.data ?? [];
-  const usingApi = !ticketsQuery.isError && apiTickets.length > 0;
-  const tickets = useMemo(
-    () => (usingApi ? (apiTickets as unknown as DemoTicket[]) : demoTickets),
-    [apiTickets, usingApi],
-  );
+  const usingApi = !ticketsQuery.isError;
+  const tickets = useMemo(() => apiTickets as unknown as DemoTicket[], [apiTickets]);
 
   const allQueues = useMemo(() => ['Todas', ...Array.from(new Set(tickets.map((ticket) => ticket.queue)))], [tickets]);
   const allAgents = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.agent)))], [tickets]);
@@ -88,16 +85,11 @@ export default function ConversasPage() {
     enabled: Boolean(selectedTicket?.id && usingApi),
   });
 
-  const messages =
-    usingApi && messagesQuery.data?.data?.length
-      ? messagesQuery.data.data
-      : selectedTicket
-        ? getDemoMessages(selectedTicket)
-        : [];
+  const messages = messagesQuery.data?.data ?? [];
 
   async function copyConversationLink(ticket: DemoTicket) {
     setCopied(true);
-    await navigator.clipboard?.writeText(`http://localhost:3000/conversas?ticket=${ticket.id}`);
+    await navigator.clipboard?.writeText(`${window.location.origin}/conversas?ticket=${ticket.id}`);
     window.setTimeout(() => setCopied(false), 1500);
   }
 
@@ -111,7 +103,7 @@ export default function ConversasPage() {
             Pesquise por cliente, telefone, ticket, fila, canal, grupo, tag ou sentimento. Ao clicar, a timeline completa fica aberta ao lado.
           </p>
           <p className="mt-4 text-xs font-semibold text-primary">
-            Fonte: {usingApi ? 'Conectado a API real' : ticketsQuery.isLoading ? 'Carregando API' : 'Usando fallback local'}
+            Fonte: {ticketsQuery.isLoading ? 'Carregando API' : ticketsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
           </p>
         </div>
 

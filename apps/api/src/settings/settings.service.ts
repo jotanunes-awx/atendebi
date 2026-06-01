@@ -323,7 +323,7 @@ function getMissingIntegrationSettings(provider: IntegrationProvider, settings: 
       [configService.get<string>('GLPI_APP_TOKEN'), 'GLPI_APP_TOKEN'],
       [configService.get<string>('GLPI_USER_TOKEN'), 'GLPI_USER_TOKEN'],
     ]
-      .filter(([value]) => !value)
+      .filter(([value]) => !hasConfiguredValue(value))
       .map(([, key]) => key as string);
   }
 
@@ -332,7 +332,7 @@ function getMissingIntegrationSettings(provider: IntegrationProvider, settings: 
     [readString(settings, 'clientId', '') || configService.get<string>('TEAMS_CLIENT_ID'), 'TEAMS_CLIENT_ID'],
     [configService.get<string>('TEAMS_CLIENT_SECRET'), 'TEAMS_CLIENT_SECRET'],
   ]
-    .filter(([value]) => !value)
+    .filter(([value]) => !hasConfiguredValue(value))
     .map(([, key]) => key as string);
 }
 
@@ -436,6 +436,14 @@ function readNumber(record: Record<string, unknown>, key: string) {
   const value = record[key];
 
   return typeof value === 'number' ? value : null;
+}
+
+function hasConfiguredValue(value?: string) {
+  if (!value?.trim()) {
+    return false;
+  }
+
+  return !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(value.trim());
 }
 
 function maskUrl(value: string) {

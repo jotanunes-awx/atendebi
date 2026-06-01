@@ -248,6 +248,7 @@ export type IntegrationSyncResult = {
   status: string;
   message: string;
   rawEventId?: string;
+  imported?: number;
 };
 
 export type SettingsOverview = {

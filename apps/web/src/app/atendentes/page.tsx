@@ -9,9 +9,22 @@ import { DrilldownDrawer } from '@/components/drilldown-drawer';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { getAgent, getAgents, type AgentItem } from '@/lib/api-client';
-import { demoAgentMetrics, getTicketsByAgent, type DemoAgentMetric, type DemoTicket } from '@/lib/demo-data';
+import type { DemoTicket } from '@/lib/demo-data';
 
-const agentColumns: DataTableColumn<DemoAgentMetric>[] = [
+type AgentMetric = {
+  id: string;
+  name: string;
+  queue: string;
+  ticketsHandled: number;
+  openTickets: number;
+  averageRating: number;
+  resolutionRate: number;
+  firstResponseMinutes: number;
+  complaints: number;
+  tickets?: DemoTicket[];
+};
+
+const agentColumns: DataTableColumn<AgentMetric>[] = [
   {
     key: 'agent',
     header: 'Atendente',
@@ -50,7 +63,7 @@ const agentColumns: DataTableColumn<DemoAgentMetric>[] = [
 ];
 
 export default function AtendentesPage() {
-  const [drawer, setDrawer] = useState<{ agent: DemoAgentMetric; rows: DemoTicket[] } | null>(null);
+  const [drawer, setDrawer] = useState<{ agent: AgentMetric; rows: DemoTicket[] } | null>(null);
   const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
   const agentsQuery = useQuery({
     queryKey: ['agents'],
@@ -58,16 +71,16 @@ export default function AtendentesPage() {
   });
 
   const apiAgents = agentsQuery.data?.data ?? [];
-  const usingApi = !agentsQuery.isError && apiAgents.length > 0;
-  const agents = usingApi ? apiAgents.map(mapAgent) : demoAgentMetrics;
+  const usingApi = !agentsQuery.isError;
+  const agents = apiAgents.map(mapAgent);
   const agentDetailQuery = useQuery({
     queryKey: ['agent-detail', drawer?.agent.id],
     queryFn: () => getAgent(drawer?.agent.id ?? ''),
     enabled: Boolean(drawer?.agent.id && usingApi),
   });
 
-  function openAgent(agent: DemoAgentMetric) {
-    setDrawer({ agent, rows: getTicketsByAgent(agent.name) });
+  function openAgent(agent: AgentMetric) {
+    setDrawer({ agent, rows: agent.tickets ?? [] });
   }
 
   const drawerRows =
@@ -85,7 +98,7 @@ export default function AtendentesPage() {
             Clique em qualquer atendente para ver carteira, tickets abertos, historico recente, nota media e casos de risco.
           </p>
           <p className="mt-4 text-xs font-semibold text-primary">
-            Fonte: {usingApi ? 'Conectado a API real' : agentsQuery.isLoading ? 'Carregando API' : 'Usando fallback local'}
+            Fonte: {agentsQuery.isLoading ? 'Carregando API' : agentsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
           </p>
         </div>
 
@@ -139,6 +152,11 @@ export default function AtendentesPage() {
               </p>
             </button>
           ))}
+          {!agentsQuery.isLoading && agents.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-card p-5 text-sm leading-6 text-muted-foreground shadow-panel xl:col-span-5">
+              Nenhum atendente/tecnico sincronizado ainda. Quando o GLPI trouxer responsaveis ou o Teams trouxer agentes, eles aparecerao aqui.
+            </div>
+          ) : null}
         </div>
 
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
@@ -164,7 +182,7 @@ export default function AtendentesPage() {
             ? `${drawer.agent.openTickets} tickets em aberto, nota media ${drawer.agent.averageRating.toFixed(1).replace('.', ',')} e ${drawer.agent.complaints} reclamacoes associadas.`
             : ''
         }
-        filters={drawer ? [{ label: 'Atendente', value: drawer.agent.name }, { label: 'Fonte', value: usingApi ? 'API real' : 'Fallback local' }] : []}
+        filters={drawer ? [{ label: 'Atendente', value: drawer.agent.name }, { label: 'Fonte', value: usingApi ? 'API real' : 'API indisponivel' }] : []}
         rows={drawerRows}
         columns={ticketColumns}
         getSearchValue={getTicketSearchValue}
@@ -180,7 +198,7 @@ export default function AtendentesPage() {
   );
 }
 
-function mapAgent(agent: AgentItem): DemoAgentMetric {
+function mapAgent(agent: AgentItem): AgentMetric {
   return {
     id: agent.id,
     name: agent.name,
@@ -191,5 +209,6 @@ function mapAgent(agent: AgentItem): DemoAgentMetric {
     resolutionRate: agent.resolutionRate,
     firstResponseMinutes: agent.firstResponseMinutes,
     complaints: agent.complaints,
+    tickets: agent.tickets as DemoTicket[] | undefined,
   };
 }

@@ -24,7 +24,6 @@ import {
   RetentionTab,
   SecurityTab,
 } from '@/features/settings/settings-tabs';
-import { demoIntegrationStatus } from '@/lib/demo-data';
 import { useAuth } from '@/lib/auth';
 import {
   getSettingsOverview,
@@ -63,7 +62,7 @@ export default function ConfiguracoesPage() {
   });
 
   const settings = settingsQuery.data;
-  const tenantName = settings?.tenant?.name ?? user?.tenant ?? demoIntegrationStatus.tenant;
+  const tenantName = settings?.tenant?.name ?? user?.tenant ?? 'Tenant nao carregado';
   const integrations = settings?.integrations ?? [];
   const blipIntegration = integrations.find((integration) => integration.provider === 'BLIP');
   const glpiIntegration = integrations.find((integration) => integration.provider === 'GLPI');
@@ -137,7 +136,7 @@ export default function ConfiguracoesPage() {
                 Centro de controle do tenant, integracoes BLiP, GLPI e Teams/PABX, webhook, retencao historica, seguranca, perfis e LGPD.
               </p>
               <p className="mt-4 text-xs font-semibold text-primary">
-                Fonte: {settingsQuery.isError ? 'Usando fallback local' : settings ? 'Conectado a API real' : 'Carregando API'}
+                Fonte: {settingsQuery.isError ? 'API indisponivel' : settings ? 'Conectado a API real' : 'Carregando API'}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -157,7 +156,7 @@ export default function ConfiguracoesPage() {
             <HealthCard
               icon={PlugZap}
               label="BLiP"
-              value={blipIntegration?.statusLabel ?? settings?.integration?.status ?? demoIntegrationStatus.status}
+              value={blipIntegration?.statusLabel ?? settings?.integration?.status ?? 'Sem configuracao'}
               detail="Eventos recebidos por webhook"
               tone={blipIntegration?.configured === false ? 'warning' : 'success'}
             />

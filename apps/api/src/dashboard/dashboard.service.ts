@@ -114,17 +114,8 @@ export class DashboardService {
           tone: 'neutral',
         },
       ],
-      operationalRisks: [
-        { label: 'Nota baixa sem contato posterior', value: lowRated.length, tone: 'danger' },
-        { label: 'Cliente pediu humano 3x', value: botFallbacks.length, tone: 'warning' },
-        { label: 'Conversa fechada sem tag', value: rows.filter((ticket) => ticket.tags.length === 0).length, tone: 'neutral' },
-      ],
-      improvementSuggestions: [
-        'Revisar respostas do bot nos pedidos de segunda via e entrega atrasada.',
-        'Criar alerta para tickets com mais de 8 minutos sem resposta humana.',
-        'Priorizar auditoria das filas com maior proporcao de notas baixas.',
-        'Gerar resumo automatico da conversa antes da transferencia para atendente.',
-      ],
+      operationalRisks: buildOperationalRisks(rows),
+      improvementSuggestions: buildImprovementSuggestions(rows),
       agentPerformance: buildAgentPerformance(rows),
       recurringTopics: buildRecurringTopics(rows),
       resolutionFunnel: buildResolutionFunnel(rows),
@@ -289,18 +280,63 @@ function buildRecurringTopics(rows: PresentedTicket[]) {
 
 function buildResolutionFunnel(rows: PresentedTicket[]) {
   const total = rows.length;
-  const botResolved = rows.filter((ticket) => !ticket.botFallback && ticket.status === 'CLOSED').length;
-  const transferred = rows.filter((ticket) => ticket.botFallback).length;
-  const humanResolved = rows.filter((ticket) => ticket.status === 'CLOSED' && ticket.resolutionStatus === 'Resolvido').length;
+  const open = rows.filter((ticket) => ticket.status === 'OPEN').length;
+  const pending = rows.filter((ticket) => ticket.status === 'PENDING').length;
+  const resolved = rows.filter((ticket) => ticket.status === 'CLOSED' && !ticket.unresolved).length;
   const unresolved = rows.filter((ticket) => ticket.unresolved).length;
 
   return [
     { label: 'Iniciados', value: total, share: 100 },
-    { label: 'Resolvidos no bot', value: botResolved, share: percentage(botResolved, total) },
-    { label: 'Transferidos', value: transferred, share: percentage(transferred, total) },
-    { label: 'Resolvidos humano', value: humanResolved, share: percentage(humanResolved, total) },
+    { label: 'Em andamento', value: open, share: percentage(open, total) },
+    { label: 'Pendentes', value: pending, share: percentage(pending, total) },
+    { label: 'Resolvidos', value: resolved, share: percentage(resolved, total) },
     { label: 'Sem solucao', value: unresolved, share: percentage(unresolved, total) },
   ];
+}
+
+function buildOperationalRisks(rows: PresentedTicket[]) {
+  const lowRated = rows.filter((ticket) => ticket.rating > 0 && ticket.rating <= 2).length;
+  const highRisk = rows.filter((ticket) => ticket.risk === 'alto').length;
+  const openOrPending = rows.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING').length;
+  const withoutTags = rows.filter((ticket) => ticket.tags.length === 0).length;
+
+  return [
+    { label: 'Notas baixas para revisar', value: lowRated, tone: 'danger' as const },
+    { label: 'Prioridade ou risco alto', value: highRisk, tone: 'warning' as const },
+    { label: 'Abertos ou pendentes', value: openOrPending, tone: 'neutral' as const },
+    { label: 'Registros sem tag', value: withoutTags, tone: 'neutral' as const },
+  ].filter((risk) => risk.value > 0);
+}
+
+function buildImprovementSuggestions(rows: PresentedTicket[]) {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const hasGlpi = rows.some((ticket) => ticket.channel === 'GLPI' || ticket.tags.includes('GLPI'));
+  const highRisk = rows.filter((ticket) => ticket.risk === 'alto').length;
+  const waiting = rows.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING').length;
+  const slow = rows.filter((ticket) => ticket.firstResponseMinutes >= 8 || ticket.waitMinutes >= 8).length;
+  const suggestions: string[] = [];
+
+  if (hasGlpi) {
+    suggestions.push('Priorizar chamados GLPI abertos ou pendentes antes de avaliar SLA e backlog.');
+    suggestions.push('Mapear categorias GLPI com maior volume para criar grupos de gestao no AtendeBI.');
+  }
+
+  if (highRisk > 0) {
+    suggestions.push('Abrir revisao operacional dos tickets em risco alto e registrar proximo passo.');
+  }
+
+  if (waiting > 0) {
+    suggestions.push('Acompanhar tickets abertos ou pendentes para evitar envelhecimento da fila.');
+  }
+
+  if (slow > 0) {
+    suggestions.push('Criar alerta para registros com primeira resposta ou espera acima do alvo definido.');
+  }
+
+  return suggestions.slice(0, 4);
 }
 
 function average(values: number[]) {

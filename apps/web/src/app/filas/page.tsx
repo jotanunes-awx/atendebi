@@ -10,9 +10,20 @@ import { RiskBadge } from '@/components/risk-badge';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { getQueue, getQueues, type QueueItem } from '@/lib/api-client';
-import { demoQueueMetrics, getTicketsByQueue, type DemoQueueMetric, type DemoTicket } from '@/lib/demo-data';
+import type { DemoTicket } from '@/lib/demo-data';
 
-const queueColumns: DataTableColumn<DemoQueueMetric>[] = [
+type QueueMetric = {
+  id: string;
+  name: string;
+  openTickets: number;
+  averageWaitMinutes: number;
+  averageRating: number;
+  riskTickets: number;
+  owner: string;
+  tickets?: DemoTicket[];
+};
+
+const queueColumns: DataTableColumn<QueueMetric>[] = [
   {
     key: 'name',
     header: 'Fila',
@@ -46,7 +57,7 @@ const queueColumns: DataTableColumn<DemoQueueMetric>[] = [
 ];
 
 export default function FilasPage() {
-  const [drawer, setDrawer] = useState<{ queue: DemoQueueMetric; rows: DemoTicket[] } | null>(null);
+  const [drawer, setDrawer] = useState<{ queue: QueueMetric; rows: DemoTicket[] } | null>(null);
   const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
   const queuesQuery = useQuery({
     queryKey: ['queues'],
@@ -54,16 +65,16 @@ export default function FilasPage() {
   });
 
   const apiQueues = queuesQuery.data?.data ?? [];
-  const usingApi = !queuesQuery.isError && apiQueues.length > 0;
-  const queues = usingApi ? apiQueues.map(mapQueue) : demoQueueMetrics;
+  const usingApi = !queuesQuery.isError;
+  const queues = apiQueues.map(mapQueue);
   const queueDetailQuery = useQuery({
     queryKey: ['queue-detail', drawer?.queue.id],
     queryFn: () => getQueue(drawer?.queue.id ?? ''),
     enabled: Boolean(drawer?.queue.id && usingApi),
   });
 
-  function openQueue(queue: DemoQueueMetric) {
-    setDrawer({ queue, rows: getTicketsByQueue(queue.name) });
+  function openQueue(queue: QueueMetric) {
+    setDrawer({ queue, rows: queue.tickets ?? [] });
   }
 
   const drawerRows =
@@ -82,7 +93,7 @@ export default function FilasPage() {
             Cada fila agora abre a lista de tickets, riscos, responsavel e gargalos. Clique no numero de abertos ou na linha da tabela para detalhar.
           </p>
           <p className="mt-4 text-xs font-semibold text-primary">
-            Fonte: {usingApi ? 'Conectado a API real' : queuesQuery.isLoading ? 'Carregando API' : 'Usando fallback local'}
+            Fonte: {queuesQuery.isLoading ? 'Carregando API' : queuesQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
           </p>
         </div>
 
@@ -119,6 +130,11 @@ export default function FilasPage() {
               </div>
             </button>
           ))}
+          {!queuesQuery.isLoading && queues.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-card p-5 text-sm leading-6 text-muted-foreground shadow-panel xl:col-span-5">
+              Nenhuma fila sincronizada ainda. Depois do sync do GLPI, as categorias/filas reais aparecerao aqui.
+            </div>
+          ) : null}
         </div>
 
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
@@ -144,7 +160,7 @@ export default function FilasPage() {
             ? `${drawer.queue.openTickets} tickets abertos, espera media de ${drawer.queue.averageWaitMinutes.toFixed(1).replace('.', ',')} minutos e ${drawer.queue.riskTickets} casos em risco.${detailAgents ? ` Atendentes: ${detailAgents}.` : ''}`
             : ''
         }
-        filters={drawer ? [{ label: 'Fila', value: drawer.queue.name }, { label: 'Fonte', value: usingApi ? 'API real' : 'Fallback local' }] : []}
+        filters={drawer ? [{ label: 'Fila', value: drawer.queue.name }, { label: 'Fonte', value: usingApi ? 'API real' : 'API indisponivel' }] : []}
         rows={drawerRows}
         columns={ticketColumns}
         getSearchValue={getTicketSearchValue}
@@ -160,7 +176,7 @@ export default function FilasPage() {
   );
 }
 
-function mapQueue(queue: QueueItem): DemoQueueMetric {
+function mapQueue(queue: QueueItem): QueueMetric {
   return {
     id: queue.id,
     name: queue.name,
@@ -169,5 +185,6 @@ function mapQueue(queue: QueueItem): DemoQueueMetric {
     averageRating: queue.averageRating,
     riskTickets: queue.riskTickets,
     owner: queue.agents?.[0]?.name ?? 'Responsavel operacional',
+    tickets: queue.tickets as DemoTicket[] | undefined,
   };
 }

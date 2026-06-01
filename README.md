@@ -45,7 +45,13 @@ npm run db:migrate
 npm run db:seed
 ```
 
-O seed cria o tenant `local-tenant`, o usuario admin mockado, roles, integracoes BLiP/GLPI/Teams demo, filas, atendentes, contatos, tickets, mensagens, ratings, tags e analises fake de IA.
+O seed cria o tenant `local-tenant`, o usuario admin mockado, roles e configuracoes de integracao. Por padrao ele nao cria tickets ficticios. As telas ficam vazias ate voce sincronizar uma origem real, como GLPI, Teams/PABX ou BLiP.
+
+Para uma apresentacao sem integracao real, habilite dados demo antes do seed:
+
+```env
+ATENDEBI_DEMO_DATA=true
+```
 
 5. Rode API e frontend:
 
@@ -121,7 +127,7 @@ curl http://localhost:3333/tickets ^
   -H "x-tenant-id: local-tenant" ^
   -H "x-roles: ATENDEBI_ADMIN"
 
-curl http://localhost:3333/conversations/ticket-demo-001/messages ^
+curl http://localhost:3333/conversations/ID_DO_TICKET/messages ^
   -H "x-tenant-id: local-tenant" ^
   -H "x-roles: ATENDEBI_ADMIN"
 
@@ -225,6 +231,7 @@ GLPI_BASE_URL=https://glpi.suaempresa.com
 GLPI_APP_TOKEN=seu-app-token
 GLPI_USER_TOKEN=seu-user-token
 GLPI_SYNC_ENABLED=false
+GLPI_SYNC_LIMIT=50
 ```
 
 Depois rode:
@@ -232,6 +239,10 @@ Depois rode:
 ```bash
 npm run db:seed
 curl -X POST http://localhost:3333/integrations/GLPI/test ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+
+curl -X POST http://localhost:3333/integrations/GLPI/sync ^
   -H "x-tenant-id: local-tenant" ^
   -H "x-roles: ATENDEBI_ADMIN"
 ```
@@ -251,7 +262,7 @@ Permissoes Graph previstas para o piloto:
 - `CallRecords.Read.All`
 - `Reports.Read.All`
 
-No MVP, `/integrations/:provider/test` valida se a configuracao esta presente sem expor segredos. `/integrations/:provider/sync` registra um dry-run em `raw_events` para validar tenant, auditoria e fluxo, mas ainda nao chama GLPI ou Graph de verdade.
+No MVP, `/integrations/GLPI/test` valida a conexao real via `initSession`. `/integrations/GLPI/sync` busca chamados no GLPI, salva `raw_events` e normaliza dados para `contacts`, `queues`, `agents`, `tickets`, `messages` e tags. O conector Teams/PABX ainda fica preparado em modo dry-run ate ligarmos Microsoft Graph.
 
 ## Status do MVP local
 
@@ -262,7 +273,7 @@ O MVP local esta considerado fechado quando:
 - API abre em `http://localhost:3333`.
 - Swagger abre em `http://localhost:3333/docs`.
 - Frontend abre em `http://localhost:3000`.
-- Dashboard e paginas internas consomem a API real com fallback local.
+- Dashboard e paginas internas consomem a API real, sem preencher tickets ficticios por padrao.
 - `/bot`, `/vendas` e `/configuracoes` existem.
 - Webhook salva `raw_events`, enfileira e normaliza dados basicos.
 - Configuracoes leem `/settings/overview`.
@@ -273,7 +284,7 @@ O MVP local esta considerado fechado quando:
 1. Conectar autenticacao real com Microsoft Entra ID.
 2. Expor a API local via tunnel HTTPS ou publicar ambiente de homologacao.
 3. Configurar webhook real no BLiP apontando para `/webhooks/blip/:tenantKey`.
-4. Conectar GLPI real usando `/apirest.php/initSession`, busca incremental de chamados e normalizacao para tickets.
+4. Refinar o conector GLPI com busca incremental, entidades, tecnicos reais e anexos/historico completo.
 5. Conectar Teams Phone via Microsoft Graph Call Records e relatarios de chamadas.
 6. Capturar payloads reais e ajustar normalizacao fina dos conectores.
 7. Usar API do BLiP somente no backend para backfill/historico, quando necessario.

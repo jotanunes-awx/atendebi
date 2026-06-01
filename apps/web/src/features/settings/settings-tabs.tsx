@@ -25,7 +25,6 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { Button } from '@/components/ui/button';
-import { demoConversationGroups, demoIntegrationStatus } from '@/lib/demo-data';
 import type {
   IntegrationProvider,
   IntegrationSummary,
@@ -42,7 +41,7 @@ import {
   StatusPill,
   ToggleRow,
 } from './settings-components';
-import { permissionRows, roleRows, userRows, type MockUserRow, type PermissionRow } from './settings-data';
+import { permissionRows, type MockUserRow, type PermissionRow } from './settings-data';
 
 type CopyHandler = (label: string, value: string) => void;
 
@@ -104,9 +103,7 @@ export function IntegrationTab({
   onSyncIntegration: (provider: IntegrationProvider) => void | Promise<void>;
   onToggleSecret: () => void;
 }) {
-  const integration = settings?.integration;
-  const webhookUrl = integration?.webhookUrl ?? demoIntegrationStatus.webhookUrl;
-  const integrations = settings?.integrations?.length ? settings.integrations : buildFallbackIntegrations(webhookUrl, integration);
+  const integrations = settings?.integrations ?? [];
 
   return (
     <div className="space-y-5">
@@ -131,6 +128,11 @@ export function IntegrationTab({
               onSyncIntegration={onSyncIntegration}
             />
           ))}
+          {integrations.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-secondary p-5 text-sm leading-6 text-muted-foreground xl:col-span-3">
+              Nenhuma integracao retornada pela API. Rode o seed de configuracao e depois sincronize uma origem real.
+            </div>
+          ) : null}
         </div>
 
       </section>
@@ -327,7 +329,7 @@ function IntegrationProviderCard({
         {canSync ? (
           <Button variant="outline" size="sm" type="button" onClick={() => onSyncIntegration(integration.provider)} disabled={syncing}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            {syncing ? 'Sincronizando' : 'Sync dry-run'}
+            {syncing ? 'Sincronizando' : integration.provider === 'GLPI' ? 'Sincronizar' : 'Preparar sync'}
           </Button>
         ) : null}
       </div>
@@ -396,67 +398,6 @@ function providerIcon(provider: IntegrationProvider) {
   }
 
   return PlugZap;
-}
-
-function buildFallbackIntegrations(webhookUrl: string, integration?: SettingsOverview['integration']): IntegrationSummary[] {
-  return [
-    {
-      provider: 'BLIP',
-      label: 'BLiP',
-      name: integration?.name ?? demoIntegrationStatus.name,
-      category: 'Atendimento conversacional',
-      description: 'Coleta conversas, tickets, bot e mensagens via webhook.',
-      status: 'connected',
-      statusLabel: integration?.status ?? demoIntegrationStatus.status,
-      configured: true,
-      active: true,
-      tenantKey: integration?.tenantKey ?? 'local-tenant',
-      webhookUrl,
-      rawEvents: integration?.rawEvents ?? 0,
-      lastEventAt: integration?.lastEventAt ?? demoIntegrationStatus.lastSyncAt,
-      missingSettings: [],
-      requiredSettings: ['WEBHOOK_PUBLIC_BASE_URL', 'BLIP_WEBHOOK_SECRET quando obrigatorio'],
-      nextAction: 'Cadastrar webhook na origem e acompanhar raw_events.',
-      capabilities: ['Conversas', 'Mensagens', 'Filas', 'Atendentes', 'Bot', 'Qualidade'],
-      settingsPreview: { mode: 'demo', sourceRetentionDays: 90, atendebiRetentionDays: 730 },
-    },
-    {
-      provider: 'GLPI',
-      label: 'GLPI',
-      name: 'GLPI Homologacao',
-      category: 'ITSM / chamados',
-      description: 'Coleta chamados, SLAs, categorias, tecnicos e backlog do suporte.',
-      status: 'pending',
-      statusLabel: 'Pendente configuracao',
-      configured: false,
-      active: false,
-      rawEvents: 0,
-      lastEventAt: null,
-      missingSettings: ['GLPI_BASE_URL', 'GLPI_APP_TOKEN', 'GLPI_USER_TOKEN'],
-      requiredSettings: ['GLPI_BASE_URL', 'GLPI_APP_TOKEN', 'GLPI_USER_TOKEN'],
-      nextAction: 'Configurar credenciais GLPI no .env da API.',
-      capabilities: ['Chamados', 'SLA', 'Tecnicos', 'Categorias', 'Tempo de resolucao', 'Backlog'],
-      settingsPreview: { baseUrl: 'Nao configurado', apiPath: '/apirest.php', syncStrategy: 'Polling incremental' },
-    },
-    {
-      provider: 'TEAMS_PHONE',
-      label: 'Teams Phone / PABX',
-      name: 'Teams Phone / PABX',
-      category: 'Telefonia corporativa',
-      description: 'Coleta ligacoes, filas, duracao, abandono e relatorios via Microsoft Graph.',
-      status: 'pending',
-      statusLabel: 'Pendente configuracao',
-      configured: false,
-      active: false,
-      rawEvents: 0,
-      lastEventAt: null,
-      missingSettings: ['TEAMS_TENANT_ID', 'TEAMS_CLIENT_ID', 'TEAMS_CLIENT_SECRET'],
-      requiredSettings: ['TEAMS_TENANT_ID', 'TEAMS_CLIENT_ID', 'TEAMS_CLIENT_SECRET'],
-      nextAction: 'Configurar App Registration e permissoes Graph.',
-      capabilities: ['Ligacoes', 'Filas', 'Atendentes', 'Duracao', 'Abandono', 'Call Records'],
-      settingsPreview: { tenantId: 'Nao configurado', clientId: 'Nao configurado', permissions: ['CallRecords.Read.All', 'Reports.Read.All'] },
-    },
-  ];
 }
 
 function formatNullableDate(value: string | null) {
@@ -562,8 +503,8 @@ export function SecurityTab({
 }
 
 export function ProfilesTab({ settings }: { settings?: SettingsOverview }) {
-  const users = settings?.users.length ? settings.users.map(mapApiUser) : userRows;
-  const roles = settings?.roles.length ? settings.roles : roleRows;
+  const users = settings?.users.length ? settings.users.map(mapApiUser) : [];
+  const roles = settings?.roles.length ? settings.roles : [];
 
   return (
     <div className="space-y-5">
@@ -651,16 +592,7 @@ export function RetentionTab({
         channels: group.channels,
         queues: ['API real'],
       }))
-    : demoConversationGroups.map((group) => ({
-        id: group.id,
-        name: group.name,
-        tickets: group.tickets,
-        openTickets: group.openTickets,
-        highRiskTickets: group.highRiskTickets,
-        averageRating: group.averageRating,
-        channels: group.channels,
-        queues: group.queues,
-      }));
+    : [];
 
   return (
     <div className="space-y-5">
@@ -690,8 +622,8 @@ export function RetentionTab({
           <HealthCard
             icon={Database}
             label="Retencao origem"
-            value={`${retention?.sourceRetentionDays ?? demoIntegrationStatus.sourceRetentionDays} dias`}
-            detail="Referencia Meta/BLiP"
+            value={`${retention?.sourceRetentionDays ?? 0} dias`}
+            detail="Referencia da origem configurada"
             tone="warning"
           />
           <HealthCard
@@ -734,6 +666,11 @@ export function RetentionTab({
               </div>
             </article>
           ))}
+          {groups.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-secondary p-5 text-sm leading-6 text-muted-foreground xl:col-span-4">
+              Nenhum grupo foi criado ainda. Eles aparecerao conforme GLPI, Teams ou BLiP enviarem tickets e canais reais.
+            </div>
+          ) : null}
         </div>
       </section>
     </div>

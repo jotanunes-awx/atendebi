@@ -10,7 +10,7 @@ import { MetricCard } from '@/components/metric-card';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { getBotOverview, getTickets, type BotOverview } from '@/lib/api-client';
-import { demoTickets, type DemoTicket } from '@/lib/demo-data';
+import type { DemoTicket } from '@/lib/demo-data';
 
 type FlowRow = BotOverview['flows'][number];
 
@@ -44,6 +44,15 @@ const flowColumns: DataTableColumn<FlowRow>[] = [
   },
 ];
 
+const emptyBotOverview: BotOverview = {
+  fallbackRate: 0,
+  humanRequests: 0,
+  abandonedFlows: 0,
+  misunderstoodQuestions: 0,
+  flows: [],
+  failures: [],
+};
+
 export default function BotPage() {
   const [drawer, setDrawer] = useState<BotDrawer | null>(null);
   const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
@@ -57,9 +66,9 @@ export default function BotPage() {
   });
 
   const apiTickets = ticketsQuery.data?.data ?? [];
-  const usingApi = !botQuery.isError && !ticketsQuery.isError && Boolean(botQuery.data);
-  const tickets = apiTickets.length > 0 ? (apiTickets as unknown as DemoTicket[]) : demoTickets;
-  const overview = botQuery.data ?? buildFallbackBotOverview(demoTickets);
+  const usingApi = !botQuery.isError && !ticketsQuery.isError;
+  const tickets = apiTickets as unknown as DemoTicket[];
+  const overview = botQuery.data ?? emptyBotOverview;
   const failureRows = overview.failures.length > 0 ? (overview.failures as unknown as DemoTicket[]) : tickets.filter((ticket) => ticket.botFallback);
 
   function openBotSlice(title: string, rows: DemoTicket[], label: string) {
@@ -67,7 +76,7 @@ export default function BotPage() {
       title,
       description: `${rows.length} conversas encontradas para investigar falha, abandono ou transferencia do bot.`,
       rows,
-      filters: [{ label: 'Recorte', value: label }, { label: 'Fonte', value: usingApi ? 'API real' : 'Fallback local' }],
+      filters: [{ label: 'Recorte', value: label }, { label: 'Fonte', value: usingApi ? 'API real' : 'API indisponivel' }],
     });
   }
 
@@ -81,7 +90,7 @@ export default function BotPage() {
             Acompanhe onde o bot transferiu para humano, quais fluxos geraram abandono e quais perguntas precisam virar melhoria de automacao.
           </p>
           <p className="mt-4 text-xs font-semibold text-primary">
-            Fonte: {usingApi ? 'Conectado a API real' : botQuery.isLoading || ticketsQuery.isLoading ? 'Carregando API' : 'Usando fallback local'}
+            Fonte: {botQuery.isLoading || ticketsQuery.isLoading ? 'Carregando API' : botQuery.isError || ticketsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
           </p>
         </div>
 
@@ -172,47 +181,6 @@ export default function BotPage() {
       />
     </DashboardShell>
   );
-}
-
-function buildFallbackBotOverview(tickets: DemoTicket[]): BotOverview {
-  const failures = tickets.filter((ticket) => ticket.botFallback);
-  const misunderstood = failures.filter((ticket) => hasAnyTag(ticket, ['boleto', 'entrega']));
-  const abandoned = failures.filter((ticket) => ticket.unresolved);
-
-  return {
-    fallbackRate: tickets.length > 0 ? Math.round((failures.length / tickets.length) * 1000) / 10 : 0,
-    humanRequests: failures.length,
-    abandonedFlows: abandoned.length,
-    misunderstoodQuestions: misunderstood.length,
-    flows: buildFlows(tickets),
-    failures,
-  };
-}
-
-function buildFlows(tickets: DemoTicket[]): FlowRow[] {
-  const counts = new Map<string, { total: number; fallback: number }>();
-
-  for (const ticket of tickets) {
-    const flow = ticket.subject.toLowerCase().includes('boleto')
-      ? 'Financeiro/Boleto'
-      : hasAnyTag(ticket, ['entrega'])
-        ? 'Entrega'
-        : ticket.isOpportunity
-          ? 'Comercial'
-          : ticket.queue;
-    const current = counts.get(flow) ?? { total: 0, fallback: 0 };
-    counts.set(flow, {
-      total: current.total + 1,
-      fallback: current.fallback + (ticket.botFallback ? 1 : 0),
-    });
-  }
-
-  return Array.from(counts.entries()).map(([name, value]) => ({
-    name,
-    total: value.total,
-    fallback: value.fallback,
-    fallbackRate: value.total > 0 ? Math.round((value.fallback / value.total) * 100) : 0,
-  }));
 }
 
 function getRowsForFlow(flow: string, tickets: DemoTicket[]) {

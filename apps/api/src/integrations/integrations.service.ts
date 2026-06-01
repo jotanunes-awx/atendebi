@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IntegrationProvider, Prisma, RawEventStatus } from '@prisma/client';
+import { IntegrationProvider, MessageDirection, Prisma, RawEventStatus, TicketStatus } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
@@ -79,6 +79,10 @@ export class IntegrationsService {
     const integration = await this.getOne(provider, tenantHeader);
     const ok = integration.missingSettings.length === 0;
 
+    if (provider === IntegrationProvider.GLPI && ok) {
+      return this.testGlpiConnection(provider);
+    }
+
     return {
       provider,
       checkedAt: new Date().toISOString(),
@@ -111,6 +115,10 @@ export class IntegrationsService {
         status: 'missing_credentials',
         message: missingMessage(provider, readiness.missingSettings),
       };
+    }
+
+    if (provider === IntegrationProvider.GLPI) {
+      return this.syncGlpiTickets(tenantId);
     }
 
     const now = new Date();
@@ -235,7 +243,7 @@ export class IntegrationsService {
         [this.configService.get<string>('GLPI_USER_TOKEN'), 'GLPI_USER_TOKEN'],
       ];
 
-      return checks.filter(([value]) => !value).map(([, key]) => key);
+      return checks.filter(([value]) => !hasConfiguredValue(value)).map(([, key]) => key);
     }
 
     const checks: Array<[string | undefined, string]> = [
@@ -244,7 +252,7 @@ export class IntegrationsService {
       [this.configService.get<string>('TEAMS_CLIENT_SECRET'), 'TEAMS_CLIENT_SECRET'],
     ];
 
-    return checks.filter(([value]) => !value).map(([, key]) => key);
+    return checks.filter(([value]) => !hasConfiguredValue(value)).map(([, key]) => key);
   }
 
   private buildSettingsPreview(provider: SupportedProvider, settings: Record<string, unknown>) {
@@ -284,7 +292,409 @@ export class IntegrationsService {
 
     return `${baseUrl.replace(/\/$/, '')}/webhooks/blip/${tenantKey}`;
   }
+
+  private async testGlpiConnection(provider: SupportedProvider) {
+    try {
+      const session = await this.openGlpiSession();
+      await this.closeGlpiSession(session.sessionToken).catch(() => undefined);
+
+      return {
+        provider,
+        checkedAt: new Date().toISOString(),
+        ok: true,
+        status: 'ready',
+        message: 'Conexao com GLPI validada via initSession. O proximo passo e executar o sincronismo.',
+        details: [
+          { item: 'GLPI_BASE_URL configurado', status: 'ok' },
+          { item: 'GLPI_APP_TOKEN configurado', status: 'ok' },
+          { item: 'GLPI_USER_TOKEN configurado', status: 'ok' },
+          { item: 'initSession respondeu com session_token', status: 'ok' },
+        ],
+      };
+    } catch (error) {
+      return {
+        provider,
+        checkedAt: new Date().toISOString(),
+        ok: false,
+        status: 'connection_failed',
+        message: error instanceof Error ? error.message : 'Nao foi possivel validar a conexao com o GLPI.',
+        details: [
+          { item: 'Verificar URL do GLPI e acesso de rede do servidor', status: 'failed' },
+          { item: 'Verificar App Token e User Token', status: 'failed' },
+        ],
+      };
+    }
+  }
+
+  private async syncGlpiTickets(tenantId: string) {
+    const startedAt = new Date();
+    const session = await this.openGlpiSession();
+    const limit = Number(this.configService.get<string>('GLPI_SYNC_LIMIT', '50'));
+
+    try {
+      const tickets = await this.fetchGlpiTickets(session.sessionToken, limit);
+      let imported = 0;
+
+      for (const ticket of tickets) {
+        await this.upsertGlpiTicket(tenantId, ticket);
+        imported += 1;
+      }
+
+      await this.prisma.integrationConfig.updateMany({
+        where: { tenantId, provider: IntegrationProvider.GLPI },
+        data: {
+          isActive: true,
+          settings: {
+            mode: 'configured',
+            baseUrl: this.configService.get<string>('GLPI_BASE_URL') ?? '',
+            apiPath: '/apirest.php',
+            authMethod: 'app-token + user-token',
+            syncStrategy: 'polling',
+            syncEnabled: this.configService.get<string>('GLPI_SYNC_ENABLED', 'false') === 'true',
+            lastSyncAt: new Date().toISOString(),
+            lastSyncCount: imported,
+          },
+        },
+      });
+
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          action: 'integration.glpi.sync.completed',
+          entityType: 'integration',
+          entityId: IntegrationProvider.GLPI,
+          metadata: {
+            imported,
+            startedAt: startedAt.toISOString(),
+            finishedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      return {
+        provider: IntegrationProvider.GLPI,
+        accepted: true,
+        status: 'synced',
+        message: `Sincronismo GLPI concluido: ${imported} chamados importados/atualizados.`,
+        imported,
+      };
+    } finally {
+      await this.closeGlpiSession(session.sessionToken).catch(() => undefined);
+    }
+  }
+
+  private async openGlpiSession() {
+    const { apiBaseUrl, appToken, userToken } = this.getGlpiConfig();
+    const response = await fetch(`${apiBaseUrl}/initSession`, {
+      method: 'GET',
+      headers: {
+        'App-Token': appToken,
+        Authorization: `user_token ${userToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`GLPI initSession falhou com status ${response.status}. Verifique URL, App Token e User Token.`);
+    }
+
+    const body = (await response.json()) as { session_token?: string };
+
+    if (!body.session_token) {
+      throw new Error('GLPI initSession nao retornou session_token.');
+    }
+
+    return {
+      apiBaseUrl,
+      appToken,
+      sessionToken: body.session_token,
+    };
+  }
+
+  private async closeGlpiSession(sessionToken: string) {
+    const { apiBaseUrl, appToken } = this.getGlpiConfig();
+
+    await fetch(`${apiBaseUrl}/killSession`, {
+      method: 'GET',
+      headers: {
+        'App-Token': appToken,
+        'Session-Token': sessionToken,
+      },
+    });
+  }
+
+  private async fetchGlpiTickets(sessionToken: string, limit: number): Promise<GlpiTicketPayload[]> {
+    const { apiBaseUrl, appToken } = this.getGlpiConfig();
+    const response = await fetch(`${apiBaseUrl}/Ticket?range=0-${Math.max(limit - 1, 0)}`, {
+      method: 'GET',
+      headers: {
+        'App-Token': appToken,
+        'Session-Token': sessionToken,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Nao foi possivel buscar chamados GLPI. Status ${response.status}.`);
+    }
+
+    const body = (await response.json()) as unknown;
+
+    return Array.isArray(body) ? body.map((ticket) => asRecord(ticket) as GlpiTicketPayload) : [];
+  }
+
+  private async upsertGlpiTicket(tenantId: string, ticket: GlpiTicketPayload) {
+    const glpiId = readUnknownString(ticket.id) ?? readUnknownString(ticket['2']);
+
+    if (!glpiId) {
+      return;
+    }
+
+    const externalTicketId = `glpi-ticket-${glpiId}`;
+    const subject = truncate(readUnknownString(ticket.name) ?? readUnknownString(ticket['1']) ?? `Chamado GLPI ${glpiId}`, 240);
+    const content = stripHtml(readUnknownString(ticket.content) ?? readUnknownString(ticket['21']) ?? '');
+    const openedAt = parseDate(readUnknownString(ticket.date_creation) ?? readUnknownString(ticket.date) ?? readUnknownString(ticket['15'])) ?? new Date();
+    const closedAt = parseDate(readUnknownString(ticket.closedate) ?? readUnknownString(ticket.solvedate));
+    const status = mapGlpiStatus(readUnknownString(ticket.status) ?? readUnknownString(ticket['12']));
+    const priority = Number(readUnknownString(ticket.priority) ?? readUnknownString(ticket.urgency) ?? 0);
+    const categoryId = readUnknownString(ticket.itilcategories_id);
+    const requesterId = readUnknownString(ticket.users_id_recipient) ?? `ticket-${glpiId}`;
+    const technicianId =
+      readUnknownString(ticket.users_id_lastupdater) ??
+      readUnknownString(ticket.users_id_assign) ??
+      readUnknownString(ticket.users_id_tech);
+    const queueName = categoryId && categoryId !== '0' ? `GLPI Categoria ${categoryId}` : 'GLPI';
+    const risk = priority >= 4 ? 'alto' : priority >= 3 ? 'medio' : 'baixo';
+    const payloadHash = createHash('sha256').update(JSON.stringify(ticket)).digest('hex');
+    const rawPayload = toInputJson(ticket);
+    const isClosed = status === TicketStatus.CLOSED;
+
+    const rawEvent = await this.prisma.rawEvent.upsert({
+      where: {
+        tenantId_provider_providerEventId: {
+          tenantId,
+          provider: IntegrationProvider.GLPI,
+          providerEventId: externalTicketId,
+        },
+      },
+      update: {
+        payloadHash,
+        payload: rawPayload,
+        eventType: 'glpi.ticket',
+        processingStatus: RawEventStatus.PROCESSED,
+        processedAt: new Date(),
+        errorMessage: null,
+      },
+      create: {
+        tenantId,
+        provider: IntegrationProvider.GLPI,
+        providerEventId: externalTicketId,
+        eventType: 'glpi.ticket',
+        payloadHash,
+        payload: rawPayload,
+        processingStatus: RawEventStatus.PROCESSED,
+        processedAt: new Date(),
+      },
+    });
+
+    const contact = await this.prisma.contact.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: `glpi-requester-${requesterId}`,
+        },
+      },
+      update: {
+        name: `Requerente GLPI ${requesterId}`,
+        metadata: {
+          source: 'GLPI',
+          requesterId,
+        },
+      },
+      create: {
+        tenantId,
+        externalId: `glpi-requester-${requesterId}`,
+        name: `Requerente GLPI ${requesterId}`,
+        metadata: {
+          source: 'GLPI',
+          requesterId,
+        },
+      },
+    });
+
+    const queue = await this.prisma.supportQueue.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: categoryId ? `glpi-category-${categoryId}` : 'glpi-default',
+        },
+      },
+      update: {
+        name: queueName,
+        isActive: true,
+      },
+      create: {
+        tenantId,
+        externalId: categoryId ? `glpi-category-${categoryId}` : 'glpi-default',
+        name: queueName,
+        isActive: true,
+      },
+    });
+    const agent =
+      technicianId && technicianId !== '0'
+        ? await this.prisma.agent.upsert({
+            where: {
+              tenantId_externalId: {
+                tenantId,
+                externalId: `glpi-technician-${technicianId}`,
+              },
+            },
+            update: {
+              name: `Tecnico GLPI ${technicianId}`,
+              isActive: true,
+            },
+            create: {
+              tenantId,
+              externalId: `glpi-technician-${technicianId}`,
+              name: `Tecnico GLPI ${technicianId}`,
+              isActive: true,
+            },
+          })
+        : null;
+
+    const normalizedTicket = await this.prisma.ticket.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: externalTicketId,
+        },
+      },
+      update: {
+        contactId: contact.id,
+        queueId: queue.id,
+        agentId: agent?.id,
+        status,
+        channel: 'GLPI',
+        subject,
+        openedAt,
+        closedAt: isClosed ? closedAt ?? new Date() : null,
+        firstResponseAt: openedAt,
+        metadata: buildGlpiTicketMetadata({
+          glpiId,
+          status,
+          priority,
+          categoryId,
+          risk,
+          content,
+          subject,
+        }),
+      },
+      create: {
+        tenantId,
+        externalId: externalTicketId,
+        contactId: contact.id,
+        queueId: queue.id,
+        agentId: agent?.id,
+        status,
+        channel: 'GLPI',
+        subject,
+        openedAt,
+        closedAt: isClosed ? closedAt : null,
+        firstResponseAt: openedAt,
+        metadata: buildGlpiTicketMetadata({
+          glpiId,
+          status,
+          priority,
+          categoryId,
+          risk,
+          content,
+          subject,
+        }),
+      },
+    });
+
+    const tag = await this.prisma.tag.upsert({
+      where: {
+        tenantId_name: {
+          tenantId,
+          name: 'GLPI',
+        },
+      },
+      update: {},
+      create: {
+        tenantId,
+        name: 'GLPI',
+        color: '#0ea5e9',
+      },
+    });
+
+    await this.prisma.ticketTag.upsert({
+      where: {
+        tenantId_ticketId_tagId: {
+          tenantId,
+          ticketId: normalizedTicket.id,
+          tagId: tag.id,
+        },
+      },
+      update: {},
+      create: {
+        tenantId,
+        ticketId: normalizedTicket.id,
+        tagId: tag.id,
+      },
+    });
+
+    await this.prisma.message.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: `${externalTicketId}-description`,
+        },
+      },
+      update: {
+        ticketId: normalizedTicket.id,
+        contactId: contact.id,
+        agentId: agent?.id,
+        rawEventId: rawEvent.id,
+        content,
+        sentAt: openedAt,
+      },
+      create: {
+        tenantId,
+        ticketId: normalizedTicket.id,
+        contactId: contact.id,
+        agentId: agent?.id,
+        rawEventId: rawEvent.id,
+        externalId: `${externalTicketId}-description`,
+        direction: MessageDirection.INBOUND,
+        senderName: contact.name,
+        content,
+        contentType: 'text/plain',
+        sentAt: openedAt,
+        metadata: {
+          source: 'GLPI',
+          senderRole: 'Solicitante',
+        },
+      },
+    });
+  }
+
+  private getGlpiConfig() {
+    const baseUrl = normalizeGlpiBaseUrl(this.configService.get<string>('GLPI_BASE_URL') ?? '');
+    const appToken = this.configService.get<string>('GLPI_APP_TOKEN') ?? '';
+    const userToken = this.configService.get<string>('GLPI_USER_TOKEN') ?? '';
+
+    if (!baseUrl || !appToken || !userToken) {
+      throw new Error('GLPI_BASE_URL, GLPI_APP_TOKEN e GLPI_USER_TOKEN precisam estar configurados no .env da API.');
+    }
+
+    return {
+      apiBaseUrl: `${baseUrl}/apirest.php`,
+      appToken,
+      userToken,
+    };
+  }
 }
+
+type GlpiTicketPayload = Record<string, unknown>;
 
 function parseProvider(providerParam: string): SupportedProvider {
   const normalized = providerParam.trim().toUpperCase().replace(/[-\s]/g, '_');
@@ -433,10 +843,125 @@ function readString(record: Record<string, unknown>, key: string) {
   return typeof value === 'string' ? value : '';
 }
 
+function hasConfiguredValue(value?: string) {
+  if (!value?.trim()) {
+    return false;
+  }
+
+  return !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(value.trim());
+}
+
 function readNumber(record: Record<string, unknown>, key: string) {
   const value = record[key];
 
   return typeof value === 'number' ? value : null;
+}
+
+function readUnknownString(value: unknown) {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return undefined;
+}
+
+function toInputJson(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function normalizeGlpiBaseUrl(value: string) {
+  const trimmed = value.trim().replace(/\/$/, '');
+
+  if (!trimmed) {
+    return '';
+  }
+
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+function parseDate(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function mapGlpiStatus(value?: string) {
+  const status = Number(value);
+
+  if (status === 5 || status === 6) {
+    return TicketStatus.CLOSED;
+  }
+
+  if (status === 4) {
+    return TicketStatus.PENDING;
+  }
+
+  return TicketStatus.OPEN;
+}
+
+function buildGlpiTicketMetadata({
+  glpiId,
+  status,
+  priority,
+  categoryId,
+  risk,
+  content,
+  subject,
+}: {
+  glpiId: string;
+  status: TicketStatus;
+  priority: number;
+  categoryId?: string;
+  risk: string;
+  content: string;
+  subject: string;
+}) {
+  return {
+    source: 'GLPI',
+    provider: 'GLPI',
+    glpiId,
+    glpiStatus: status,
+    priority,
+    categoryId,
+    group: 'GLPI',
+    signal: 'ITSM',
+    sentiment: risk === 'alto' ? 'negativo' : 'neutro',
+    risk,
+    resolutionStatus: status === TicketStatus.CLOSED ? 'Resolvido' : 'Em andamento',
+    waitMinutes: 0,
+    summary: content ? truncate(content, 280) : `Chamado GLPI sincronizado: ${subject}`,
+    isComplaint: false,
+    isOpportunity: false,
+    botFallback: false,
+    unresolved: status !== TicketStatus.CLOSED,
+  };
+}
+
+function stripHtml(value: string) {
+  return value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function truncate(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1).trim()}...` : value;
 }
 
 function maskUrl(value: string) {

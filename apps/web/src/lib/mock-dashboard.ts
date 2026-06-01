@@ -2,7 +2,15 @@ export type MetricTone = 'neutral' | 'good' | 'warning' | 'danger';
 
 export type MetricIconKey = 'tickets' | 'clock' | 'star' | 'alert' | 'message' | 'sale';
 
-export const dashboardMetrics = [
+export type DashboardMetric = {
+  label: string;
+  value: string;
+  detail: string;
+  tone: MetricTone;
+  icon: MetricIconKey;
+};
+
+export const dashboardMetrics: DashboardMetric[] = [
   {
     label: 'Atendimentos',
     value: '186',
@@ -47,8 +55,6 @@ export const dashboardMetrics = [
   },
 ];
 
-export type DashboardMetric = (typeof dashboardMetrics)[number];
-
 export const queueAttentionData = [
   { name: 'Suporte', abertos: 18, espera: 7.2 },
   { name: 'Comercial', abertos: 11, espera: 4.1 },
@@ -56,7 +62,7 @@ export const queueAttentionData = [
   { name: 'Retencao', abertos: 7, espera: 5.6 },
 ];
 
-export type QueueAttentionItem = (typeof queueAttentionData)[number];
+export type QueueAttentionItem = { name: string; abertos: number; espera: number };
 
 export const hourlyTicketVolume = [
   { hour: '08h', tickets: 12 },
@@ -67,7 +73,7 @@ export const hourlyTicketVolume = [
   { hour: '18h', tickets: 22 },
 ];
 
-export type HourlyTicketVolumeItem = (typeof hourlyTicketVolume)[number];
+export type HourlyTicketVolumeItem = { hour: string; tickets: number };
 
 export const qualitySummary = {
   averageRating: 4.3,
@@ -101,7 +107,12 @@ export const qualitySignals = [
   },
 ];
 
-export type QualitySignal = (typeof qualitySignals)[number];
+export type QualitySignal = {
+  label: string;
+  value: string;
+  detail: string;
+  tone: MetricTone;
+};
 
 export const operationalRisks = [
   { label: 'Nota baixa sem contato posterior', value: 7, tone: 'danger' as const },
@@ -109,7 +120,11 @@ export const operationalRisks = [
   { label: 'Conversa fechada sem tag', value: 18, tone: 'neutral' as const },
 ];
 
-export type OperationalRisk = (typeof operationalRisks)[number];
+export type OperationalRisk = {
+  label: string;
+  value: number;
+  tone: MetricTone;
+};
 
 export const improvementSuggestions = [
   'Revisar respostas do bot nos pedidos de segunda via e entrega atrasada.',
@@ -142,7 +157,13 @@ export const agentPerformance = [
   },
 ];
 
-export type AgentPerformanceItem = (typeof agentPerformance)[number];
+export type AgentPerformanceItem = {
+  name: string;
+  queue: string;
+  tickets: number;
+  rating: number;
+  resolutionRate: number;
+};
 
 export const recurringTopics = [
   { label: 'Entrega atrasada', count: 34, share: 28 },
@@ -152,7 +173,7 @@ export const recurringTopics = [
   { label: 'Negociacao comercial', count: 16, share: 13 },
 ];
 
-export type RecurringTopic = (typeof recurringTopics)[number];
+export type RecurringTopic = { label: string; count: number; share: number };
 
 export const resolutionFunnel = [
   { label: 'Iniciados', value: 186, share: 100 },
@@ -162,7 +183,7 @@ export const resolutionFunnel = [
   { label: 'Sem solucao', value: 14, share: 8 },
 ];
 
-export type ResolutionFunnelItem = (typeof resolutionFunnel)[number];
+export type ResolutionFunnelItem = { label: string; value: number; share: number };
 
 export const conversations = [
   {
@@ -199,7 +220,14 @@ export const conversations = [
   },
 ];
 
-export type ConversationSummary = (typeof conversations)[number];
+export type ConversationSummary = {
+  id: string;
+  customer: string;
+  queue: string;
+  agent: string;
+  status: string;
+  signal: string;
+};
 
 export type DashboardOverview = {
   period: string;

@@ -10,7 +10,7 @@ import { RiskBadge } from '@/components/risk-badge';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { getQualityOverview, getTickets } from '@/lib/api-client';
-import { average, demoQualityReasons, demoTickets, type DemoTicket } from '@/lib/demo-data';
+import type { DemoTicket } from '@/lib/demo-data';
 
 type QualityDrawer = {
   title: string;
@@ -32,8 +32,7 @@ export default function QualidadePage() {
   });
 
   const apiTickets = ticketsQuery.data?.data ?? [];
-  const usingApi = !qualityQuery.isError && !ticketsQuery.isError && apiTickets.length > 0;
-  const tickets = usingApi ? (apiTickets as unknown as DemoTicket[]) : demoTickets;
+  const tickets = apiTickets as unknown as DemoTicket[];
   const ratedTickets = tickets.filter((ticket) => ticket.rating > 0);
   const lowRated = tickets.filter((ticket) => ticket.rating > 0 && ticket.rating <= 2);
   const negativeSentiment = tickets.filter((ticket) => ticket.sentiment === 'negativo');
@@ -41,30 +40,8 @@ export default function QualidadePage() {
   const unresolved = tickets.filter((ticket) => ticket.unresolved);
   const quality = qualityQuery.data;
   const averageRating = quality?.averageRating ?? average(ratedTickets.map((ticket) => ticket.rating));
-  const reasons =
-    usingApi && quality?.recurrentReasons.length
-      ? quality.recurrentReasons.map((reason) => ({ ...reason, risk: inferReasonRisk(reason.label) }))
-      : demoQualityReasons;
-  const recommendedActions =
-    usingApi && quality?.recommendedActions.length
-      ? quality.recommendedActions
-      : [
-          {
-            title: 'Revisar fila Financeiro',
-            description: 'Concentra demora, boleto e maior proporcao de sentimento negativo.',
-            tickets: tickets.filter((ticket) => ticket.queue === 'Financeiro').length,
-          },
-          {
-            title: 'Criar alerta de resposta acima de 8 minutos',
-            description: 'Tickets com demora tendem a nota baixa e risco alto.',
-            tickets: tickets.filter((ticket) => ticket.firstResponseMinutes >= 8).length,
-          },
-          {
-            title: 'Auditar cancelamentos e reclamacoes',
-            description: 'Casos com risco alto precisam registro e acompanhamento.',
-            tickets: highRisk.length,
-          },
-        ];
+  const reasons = (quality?.recurrentReasons ?? []).map((reason) => ({ ...reason, risk: inferReasonRisk(reason.label) }));
+  const recommendedActions = quality?.recommendedActions ?? [];
 
   function openQuality(title: string, rows: DemoTicket[], label: string) {
     setDrawer({
@@ -85,7 +62,7 @@ export default function QualidadePage() {
             Aqui o gestor deve sair da media e chegar no atendimento exato que gerou nota baixa, risco, insatisfacao ou nao solucao.
           </p>
           <p className="mt-4 text-xs font-semibold text-primary">
-            Fonte: {usingApi ? 'Conectado a API real' : qualityQuery.isLoading || ticketsQuery.isLoading ? 'Carregando API' : 'Usando fallback local'}
+            Fonte: {qualityQuery.isLoading || ticketsQuery.isLoading ? 'Carregando API' : qualityQuery.isError || ticketsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
           </p>
         </div>
 
@@ -153,6 +130,11 @@ export default function QualidadePage() {
                   </button>
                 );
               })}
+              {reasons.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border bg-secondary p-4 text-sm leading-6 text-muted-foreground">
+                  Nenhum motivo recorrente encontrado ainda. Eles aparecem conforme houver tickets reais com tags, risco ou analise.
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -172,6 +154,11 @@ export default function QualidadePage() {
                   onOpen={openQuality}
                 />
               ))}
+              {recommendedActions.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border bg-secondary p-4 text-sm leading-6 text-muted-foreground">
+                  Nenhuma acao recomendada ainda. A API vai preencher esta area a partir dos dados sincronizados.
+                </div>
+              ) : null}
             </div>
           </section>
         </div>
@@ -270,4 +257,12 @@ function getRowsForRecommendation(
   }
 
   return tickets.slice(0, 25);
+}
+
+function average(values: number[]) {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  return Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1));
 }

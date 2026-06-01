@@ -22,7 +22,7 @@ import { SentimentBadge } from '@/components/sentiment-badge';
 import { StatusBadge } from '@/components/status-badge';
 import { formatDateTime } from '@/components/ticket-columns';
 import { getConversationMessages } from '@/lib/api-client';
-import { getDemoMessages, type DemoTicket } from '@/lib/demo-data';
+import type { DemoTicket } from '@/lib/demo-data';
 import { cn } from '@/lib/utils';
 
 type TicketDetailDrawerProps = {
@@ -51,11 +51,7 @@ export function TicketDetailDrawer({ ticket, contextLabel, onClose }: TicketDeta
     queryFn: () => getConversationMessages(ticket?.id ?? ''),
     enabled: Boolean(ticket?.id),
   });
-  const messages = ticket
-    ? messagesQuery.data?.data?.length
-      ? messagesQuery.data.data
-      : getDemoMessages(ticket)
-    : [];
+  const messages = ticket ? messagesQuery.data?.data ?? [] : [];
   const investigation = ticket ? buildInvestigation(ticket) : [];
 
   return (
@@ -182,7 +178,7 @@ export function TicketDetailDrawer({ ticket, contextLabel, onClose }: TicketDeta
                   <div>
                     <h3 className="text-base font-semibold text-card-foreground">Historico completo</h3>
                     <p className="text-sm text-muted-foreground">
-                      {messagesQuery.isLoading ? 'Carregando mensagens da API.' : 'Linha do tempo com API real e fallback demo.'}
+                      {messagesQuery.isLoading ? 'Carregando mensagens da API.' : 'Linha do tempo carregada do banco do AtendeBI.'}
                     </p>
                   </div>
                   <MessageSquareText className="h-5 w-5 text-primary" aria-hidden="true" />
@@ -193,7 +189,7 @@ export function TicketDetailDrawer({ ticket, contextLabel, onClose }: TicketDeta
 
             <footer className="flex flex-col gap-2 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-muted-foreground">
-                Detalhe demo preparado para receber mensagens reais, auditoria e analise de IA no backend.
+                Detalhe preparado para auditoria, evidencias e analise de IA futura no backend.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button asChild variant="outline">
