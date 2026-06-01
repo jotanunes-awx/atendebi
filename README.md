@@ -232,7 +232,12 @@ GLPI_APP_TOKEN=seu-app-token
 GLPI_USER_TOKEN=seu-user-token
 GLPI_SYNC_ENABLED=false
 GLPI_SYNC_LIMIT=50
+GLPI_SYNC_ACTIVE_ONLY=true
+GLPI_SYNC_STATUSES=1,2,3,4
+GLPI_SYNC_DAYS=90
 ```
+
+Por padrao o sincronismo prioriza chamados ativos do GLPI: novo, atribuido, planejado e pendente. Chamados antigos e fechados continuam historicos quando ja estiverem no banco, mas o dashboard abre em `Ativos agora` para nao poluir a leitura operacional. Se quiser trazer historico fechado tambem, altere `GLPI_SYNC_ACTIVE_ONLY=false` e ajuste `GLPI_SYNC_DAYS`.
 
 Depois rode:
 
@@ -262,7 +267,7 @@ Permissoes Graph previstas para o piloto:
 - `CallRecords.Read.All`
 - `Reports.Read.All`
 
-No MVP, `/integrations/GLPI/test` valida a conexao real via `initSession`. `/integrations/GLPI/sync` busca chamados no GLPI, salva `raw_events` e normaliza dados para `contacts`, `queues`, `agents`, `tickets`, `messages` e tags. O conector Teams/PABX ainda fica preparado em modo dry-run ate ligarmos Microsoft Graph.
+No MVP, `/integrations/GLPI/test` valida a conexao real via `initSession`. `/integrations/GLPI/sync` busca chamados no GLPI, salva `raw_events` e normaliza dados para `contacts`, `queues`, `agents`, `tickets`, `messages` e tags. Sempre que o GLPI permitir, o conector tambem tenta resolver nome do solicitante, tecnico, grupo, entidade e categoria para evitar telas com IDs soltos. O conector Teams/PABX ainda fica preparado em modo dry-run ate ligarmos Microsoft Graph.
 
 ## Status do MVP local
 

@@ -249,6 +249,7 @@ export type IntegrationSyncResult = {
   message: string;
   rawEventId?: string;
   imported?: number;
+  skipped?: number;
 };
 
 export type SettingsOverview = {

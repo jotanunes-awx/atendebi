@@ -17,10 +17,12 @@ import type { DemoTicket } from '@/lib/demo-data';
 
 const allStatuses = ['Todos', 'OPEN', 'PENDING', 'CLOSED', 'CANCELED'];
 const allSentiments = ['Todos', 'positivo', 'neutro', 'negativo'];
+const periodOptions = ['active', '24h', '7d', '30d', '90d', '12m', 'all'];
 
 export default function ConversasPage() {
   const [queue, setQueue] = useState('Todas');
   const [agent, setAgent] = useState('Todos');
+  const [period, setPeriod] = useState('active');
   const [status, setStatus] = useState('Todos');
   const [sentiment, setSentiment] = useState('Todos');
   const [channel, setChannel] = useState('Todos');
@@ -31,8 +33,13 @@ export default function ConversasPage() {
   const [copied, setCopied] = useState(false);
 
   const ticketsQuery = useQuery({
-    queryKey: ['conversation-tickets'],
-    queryFn: () => getTickets({ pageSize: 200 }),
+    queryKey: ['conversation-tickets', period, status],
+    queryFn: () =>
+      getTickets({
+        pageSize: 300,
+        period,
+        status: status === 'Todos' ? undefined : status,
+      }),
   });
 
   const apiTickets = ticketsQuery.data?.data ?? [];
@@ -112,7 +119,8 @@ export default function ConversasPage() {
             <Filter className="h-4 w-4 text-primary" aria-hidden="true" />
             Filtros de investigacao
           </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
+            <FilterSelect label="Periodo" value={period} values={periodOptions} onChange={setPeriod} />
             <FilterSelect label="Fila" value={queue} values={allQueues} onChange={setQueue} />
             <FilterSelect label="Atendente" value={agent} values={allAgents} onChange={setAgent} />
             <FilterSelect label="Status" value={status} values={allStatuses} onChange={setStatus} />
@@ -239,10 +247,28 @@ function FilterSelect({
       >
         {values.map((item) => (
           <option key={item} value={item}>
-            {item}
+            {filterValueLabel(item)}
           </option>
         ))}
       </select>
     </label>
   );
+}
+
+function filterValueLabel(value: string) {
+  const labels: Record<string, string> = {
+    active: 'Ativos agora',
+    '24h': 'Ultimas 24h',
+    '7d': 'Ultimos 7 dias',
+    '30d': 'Ultimos 30 dias',
+    '90d': 'Ultimos 90 dias',
+    '12m': 'Ultimos 12 meses',
+    all: 'Todo historico',
+    OPEN: 'Aberto',
+    PENDING: 'Pendente',
+    CLOSED: 'Fechado',
+    CANCELED: 'Cancelado',
+  };
+
+  return labels[value] ?? value;
 }

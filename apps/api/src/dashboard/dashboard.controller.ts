@@ -21,8 +21,8 @@ export class DashboardController {
 
   @Get('overview')
   @ApiOperation({ summary: 'Returns overview metrics for the dashboard' })
-  overview(@Req() request: RequestWithUser) {
-    return this.dashboardService.overview(request.user?.tenantId);
+  overview(@Req() request: RequestWithUser, @Query() filters: Record<string, string | undefined>) {
+    return this.dashboardService.overview(request.user?.tenantId, filters);
   }
 
   @Get('drilldown')

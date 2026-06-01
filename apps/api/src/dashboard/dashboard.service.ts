@@ -10,7 +10,7 @@ export class DashboardService {
     private readonly tenantContext: TenantContextService,
   ) {}
 
-  async overview(tenantHeader?: string) {
+  async overview(tenantHeader?: string, filters: Record<string, string | undefined> = {}) {
     const tenantId = await this.tenantContext.resolveTenantId(tenantHeader);
 
     if (!tenantId) {
@@ -22,7 +22,8 @@ export class DashboardService {
       include: ticketInclude,
       orderBy: { openedAt: 'desc' },
     });
-    const rows = tickets.map(presentTicket);
+    const normalizedFilters = withDefaultDashboardPeriod(filters);
+    const rows = tickets.map(presentTicket).filter((ticket) => matchesGenericFilters(ticket, normalizedFilters));
     const total = rows.length;
     const openTickets = rows.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING');
     const ratedTickets = rows.filter((ticket) => ticket.rating > 0);
@@ -36,8 +37,8 @@ export class DashboardService {
     const fallbackRate = total > 0 ? Math.round((botFallbacks.length / total) * 1000) / 10 : 0;
 
     return {
-      period: 'last_30_days',
-      periodLabel: 'Ultimos 30 dias',
+      period: normalizedFilters.period ?? 'active',
+      periodLabel: periodLabel(normalizedFilters.period),
       updatedAt: new Date().toISOString(),
       source: 'api' as const,
       metrics: [
@@ -142,11 +143,12 @@ export class DashboardService {
       include: ticketInclude,
       orderBy: { openedAt: 'desc' },
     });
-    const type = filters.type ?? 'Atendimentos';
+    const normalizedFilters = withDefaultDashboardPeriod(filters);
+    const type = normalizedFilters.type ?? 'Atendimentos';
     const rows = tickets
       .map(presentTicket)
       .filter((ticket) => matchesDrilldownType(ticket, type))
-      .filter((ticket) => matchesGenericFilters(ticket, filters));
+      .filter((ticket) => matchesGenericFilters(ticket, normalizedFilters));
 
     return {
       data: rows,
@@ -207,13 +209,78 @@ function matchesDrilldownType(ticket: PresentedTicket, type: string) {
 }
 
 function matchesGenericFilters(ticket: PresentedTicket, filters: Record<string, string | undefined>) {
+  const search = filters.search?.trim().toLowerCase();
+  const haystack = [
+    ticket.id,
+    ticket.customerName,
+    ticket.customerContact,
+    ticket.queue,
+    ticket.agent,
+    ticket.subject,
+    ticket.channel,
+    ticket.group,
+    ticket.status,
+    ticket.resolutionStatus,
+    ticket.tags.join(' '),
+  ]
+    .join(' ')
+    .toLowerCase();
+
   return (
     (!filters.queue || ticket.queue === filters.queue) &&
     (!filters.agent || ticket.agent === filters.agent) &&
     (!filters.status || ticket.status === filters.status) &&
     (!filters.rating || ticket.rating === Number(filters.rating)) &&
-    (!filters.sentiment || ticket.sentiment === filters.sentiment)
+    (!filters.sentiment || ticket.sentiment === filters.sentiment) &&
+    (!search || haystack.includes(search)) &&
+    matchesPeriod(ticket, filters.period)
   );
+}
+
+function withDefaultDashboardPeriod(filters: Record<string, string | undefined>): Record<string, string | undefined> {
+  return {
+    ...filters,
+    period: filters.period || 'active',
+  };
+}
+
+function matchesPeriod(ticket: PresentedTicket, period?: string) {
+  if (!period || period === 'all') {
+    return true;
+  }
+
+  if (period === 'active') {
+    return ticket.status === 'OPEN' || ticket.status === 'PENDING';
+  }
+
+  const daysByPeriod: Record<string, number> = {
+    '24h': 1,
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+    '12m': 365,
+  };
+  const days = daysByPeriod[period];
+
+  if (!days) {
+    return true;
+  }
+
+  return new Date(ticket.openedAt).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
+}
+
+function periodLabel(period?: string) {
+  const labels: Record<string, string> = {
+    active: 'Chamados ativos',
+    '24h': 'Ultimas 24 horas',
+    '7d': 'Ultimos 7 dias',
+    '30d': 'Ultimos 30 dias',
+    '90d': 'Ultimos 90 dias',
+    '12m': 'Ultimos 12 meses',
+    all: 'Todo o historico salvo',
+  };
+
+  return labels[period ?? 'active'] ?? 'Chamados ativos';
 }
 
 function buildHourlyVolume(rows: PresentedTicket[]) {

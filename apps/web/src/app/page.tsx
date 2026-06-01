@@ -10,13 +10,12 @@ import {
   History,
   Lightbulb,
   MessageCircle,
+  Search,
   ShoppingCart,
   Star,
   TicketCheck,
 } from 'lucide-react';
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -96,6 +95,16 @@ const emptyDashboardOverview: DashboardOverview = {
   conversations: [],
 };
 
+const dashboardPeriodOptions = [
+  { value: 'active', label: 'Ativos agora' },
+  { value: '24h', label: 'Ultimas 24h' },
+  { value: '7d', label: 'Ultimos 7 dias' },
+  { value: '30d', label: 'Ultimos 30 dias' },
+  { value: '90d', label: 'Ultimos 90 dias' },
+  { value: '12m', label: 'Ultimos 12 meses' },
+  { value: 'all', label: 'Todo historico' },
+];
+
 function RatingStars({ rating }: { rating: number }) {
   return (
     <div className="flex items-center gap-1" aria-label={`Nota media ${rating} de 5`}>
@@ -128,17 +137,28 @@ export default function Home() {
   const [chartsReady, setChartsReady] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState | null>(null);
   const [detail, setDetail] = useState<TicketDetailState | null>(null);
+  const [period, setPeriod] = useState('active');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [personSearch, setPersonSearch] = useState('');
   const [historyGroup, setHistoryGroup] = useState('Todos');
   const [historyChannel, setHistoryChannel] = useState('Todos');
   const [selectedTicketId, setSelectedTicketId] = useState('');
+  const dashboardFilters = useMemo(
+    () => ({
+      period,
+      status: statusFilter || undefined,
+      search: personSearch.trim() || undefined,
+    }),
+    [period, personSearch, statusFilter],
+  );
 
   const dashboardQuery = useQuery({
-    queryKey: ['dashboard', 'overview'],
-    queryFn: () => getDashboardOverview(),
+    queryKey: ['dashboard', 'overview', dashboardFilters],
+    queryFn: () => getDashboardOverview(dashboardFilters),
   });
   const ticketsQuery = useQuery({
-    queryKey: ['dashboard', 'tickets'],
-    queryFn: () => getTickets({ pageSize: 300 }),
+    queryKey: ['dashboard', 'tickets', dashboardFilters],
+    queryFn: () => getTickets({ pageSize: 300, ...dashboardFilters }),
   });
 
   useEffect(() => {
@@ -177,6 +197,7 @@ export default function Home() {
     : dashboardQuery.isError || ticketsQuery.isError
       ? 'API indisponivel'
       : 'Conectado a API';
+  const maxQueueOpen = Math.max(...dashboard.queueAttentionData.map((queue) => queue.abertos), 1);
 
   function openDrawer(title: string, rows: DemoTicket[], filters: DrawerState['filters'], description?: string) {
     setDrawer({
@@ -194,7 +215,7 @@ export default function Home() {
     }
 
     try {
-      const response = await getDashboardDrilldown(title);
+      const response = await getDashboardDrilldown(title, dashboardFilters);
       const rows = response.data as DemoTicket[];
       openDrawer(title, rows, filters, description ?? ticketDescription(rows));
     } catch {
@@ -209,7 +230,7 @@ export default function Home() {
     }
 
     try {
-      const response = await getTickets({ queue, pageSize: 100 });
+      const response = await getTickets({ queue, pageSize: 100, ...dashboardFilters });
       const rows = response.data as DemoTicket[];
       openDrawer(`Fila ${queue}`, rows, [{ label: 'Fila', value: queue }]);
     } catch {
@@ -235,6 +256,48 @@ export default function Home() {
           {dashboardQuery.isFetching ? 'Sincronizando' : 'Interativo'}
         </span>
       </div>
+
+      <section className="mb-4 grid gap-3 rounded-lg border border-border bg-card p-4 shadow-panel md:grid-cols-[180px_180px_1fr]">
+        <label className="text-xs font-medium text-muted-foreground">
+          Recorte dos dados
+          <select
+            value={period}
+            onChange={(event) => setPeriod(event.target.value)}
+            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-semibold text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+          >
+            {dashboardPeriodOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs font-medium text-muted-foreground">
+          Status
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-semibold text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+          >
+            <option value="">Todos</option>
+            <option value="OPEN">Abertos</option>
+            <option value="PENDING">Pendentes</option>
+            <option value="CLOSED">Fechados</option>
+          </select>
+        </label>
+        <label className="text-xs font-medium text-muted-foreground">
+          Buscar pessoa, chamado ou assunto
+          <div className="mt-2 flex h-10 items-center gap-2 rounded-md border border-input bg-background px-3 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
+            <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <input
+              value={personSearch}
+              onChange={(event) => setPersonSearch(event.target.value)}
+              placeholder="Ex.: Maria, notebook, chamado 75, financeiro"
+              className="h-full min-w-0 flex-1 bg-transparent text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+        </label>
+      </section>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {dashboard.metrics.map((metric) => {
@@ -306,39 +369,44 @@ export default function Home() {
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4">
             <h2 className="text-base font-semibold tracking-normal text-card-foreground">Filas em atencao</h2>
-            <p className="text-sm text-muted-foreground">Clique em uma barra para abrir a fila</p>
+            <p className="text-sm text-muted-foreground">Grupos, categorias ou equipes com chamados no recorte</p>
           </div>
-          <div className="h-72 w-full cursor-pointer">
+          <div className="h-72 w-full">
             {chartsReady ? (
-              <ResponsiveContainer width="100%" height={288} minWidth={0}>
-                <BarChart
-                  data={dashboard.queueAttentionData}
-                  layout="vertical"
-                  margin={{ left: 12, right: 8, top: 8, bottom: 0 }}
-                  onClick={(state: ChartClickState) => {
-                    const queue = state.activePayload?.[0]?.payload?.name;
+              <div className="h-full space-y-3 overflow-auto pr-1">
+                {dashboard.queueAttentionData.slice(0, 10).map((queue) => {
+                  const rows = liveTickets.filter((ticket) => ticket.queue === queue.name);
+                  const width = Math.max((queue.abertos / maxQueueOpen) * 100, queue.abertos > 0 ? 8 : 2);
 
-                    if (queue) {
-                      const rows = liveTickets.filter((ticket) => ticket.queue === queue);
-                      void openQueueDrawer(queue, rows);
-                    }
-                  }}
-                >
-                  <CartesianGrid stroke={isDark ? 'rgba(148, 163, 184, 0.25)' : '#e4e4e7'} strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tickLine={false} axisLine={false} tick={{ fill: isDark ? '#cbd5e1' : '#475569' }} />
-                  <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={78} tick={{ fill: isDark ? '#cbd5e1' : '#475569' }} />
-                  <Tooltip
-                    wrapperStyle={{ outline: 'none' }}
-                    contentStyle={{
-                      backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                      borderColor: isDark ? '#334155' : '#e2e8f0',
-                      color: isDark ? '#f8fafc' : '#0f172a',
-                    }}
-                    labelStyle={{ color: isDark ? '#94a3b8' : '#475569' }}
-                  />
-                  <Bar dataKey="abertos" fill={isDark ? '#5eead4' : '#0f766e'} radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+                  return (
+                    <button
+                      key={queue.name}
+                      type="button"
+                      className="w-full rounded-md border border-border bg-secondary p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => void openQueueDrawer(queue.name, rows)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="min-w-0 truncate text-sm font-semibold text-card-foreground">{queue.name}</span>
+                        <span className="shrink-0 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                          {queue.abertos} abertos
+                        </span>
+                      </div>
+                      <div className="mt-3 h-2 rounded-full bg-card">
+                        <div className="h-2 rounded-full bg-primary" style={{ width: `${width}%` }} />
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{rows.length} registros no recorte</span>
+                        <span>{queue.espera ? `${queue.espera} min espera` : 'Sem espera calculada'}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+                {dashboard.queueAttentionData.length === 0 ? (
+                  <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border bg-secondary p-4 text-center text-sm leading-6 text-muted-foreground">
+                    Nenhuma fila com chamado neste recorte. Ajuste o periodo ou sincronize o GLPI.
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <div className="h-full rounded-md bg-muted" />
             )}

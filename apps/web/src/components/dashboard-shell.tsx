@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import {
   BarChart3,
   Bot,
@@ -32,15 +32,6 @@ const navItems = [
   { label: 'Configuracoes', href: '/configuracoes', icon: Settings },
 ];
 
-const periodOptions = [
-  { value: '24h', label: 'Ultimas 24h' },
-  { value: '7d', label: 'Ultimos 7 dias' },
-  { value: '30d', label: 'Ultimos 30 dias' },
-  { value: '90d', label: 'Ultimos 90 dias' },
-  { value: '12m', label: '12 meses' },
-  { value: 'custom', label: 'Periodo personalizado' },
-];
-
 type DashboardShellProps = {
   children: ReactNode;
 };
@@ -48,7 +39,6 @@ type DashboardShellProps = {
 export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname();
   const { isAuthenticated, isReady } = useAuth();
-  const [period, setPeriod] = useState('30d');
 
   const activeLabel =
     navItems.find((item) =>
@@ -95,25 +85,10 @@ export function DashboardShell({ children }: DashboardShellProps) {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <label className="flex h-8 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-muted-foreground">
-                Periodo
-                <select
-                  value={period}
-                  onChange={(event) => setPeriod(event.target.value)}
-                  className="h-full bg-transparent text-sm font-semibold text-foreground outline-none"
-                  aria-label="Periodo do dashboard"
-                >
-                  {periodOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <span className="hidden h-8 items-center rounded-md border border-info/30 bg-info/10 px-3 text-xs font-semibold text-info xl:inline-flex">
-                Historico proprio: 24 meses mock
+                Historico proprio: 24 meses
               </span>
-              <Button size="sm" type="button">
+              <Button size="sm" type="button" onClick={() => window.location.reload()}>
                 <RefreshCw className="h-4 w-4" aria-hidden="true" />
                 <span className="hidden sm:inline">Atualizar</span>
               </Button>

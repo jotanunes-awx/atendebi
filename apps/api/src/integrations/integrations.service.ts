@@ -14,6 +14,22 @@ type RawEventStats = {
   lastEventAt: string | null;
 };
 
+type GlpiLookupContext = {
+  sessionToken: string;
+  users: Map<string, Promise<Record<string, unknown> | null>>;
+  categories: Map<string, Promise<Record<string, unknown> | null>>;
+  entities: Map<string, Promise<Record<string, unknown> | null>>;
+  groups: Map<string, Promise<Record<string, unknown> | null>>;
+};
+
+type GlpiSyncOptions = {
+  limit: number;
+  overfetchLimit: number;
+  syncDays: number;
+  activeOnly: boolean;
+  statuses: Set<number>;
+};
+
 @Injectable()
 export class IntegrationsService {
   constructor(
@@ -266,6 +282,7 @@ export class IntegrationsService {
 
     if (provider === IntegrationProvider.GLPI) {
       const baseUrl = readString(settings, 'baseUrl') || this.configService.get<string>('GLPI_BASE_URL') || '';
+      const syncOptions = this.getGlpiSyncOptions();
 
       return {
         baseUrl: maskUrl(baseUrl),
@@ -273,6 +290,10 @@ export class IntegrationsService {
         authMethod: 'App Token + User Token',
         syncStrategy: 'Polling incremental',
         syncEnabled: this.configService.get<string>('GLPI_SYNC_ENABLED', 'false') === 'true',
+        syncLimit: syncOptions.limit,
+        activeOnly: syncOptions.activeOnly,
+        syncDays: syncOptions.syncDays,
+        activeStatuses: Array.from(syncOptions.statuses).join(', '),
       };
     }
 
@@ -329,15 +350,22 @@ export class IntegrationsService {
   private async syncGlpiTickets(tenantId: string) {
     const startedAt = new Date();
     const session = await this.openGlpiSession();
-    const limit = Number(this.configService.get<string>('GLPI_SYNC_LIMIT', '50'));
+    const syncOptions = this.getGlpiSyncOptions();
 
     try {
-      const tickets = await this.fetchGlpiTickets(session.sessionToken, limit);
+      const tickets = await this.fetchGlpiTickets(session.sessionToken, syncOptions);
+      const lookupContext = this.createGlpiLookupContext(session.sessionToken);
       let imported = 0;
+      let skipped = 0;
 
       for (const ticket of tickets) {
-        await this.upsertGlpiTicket(tenantId, ticket);
-        imported += 1;
+        const normalized = await this.upsertGlpiTicket(tenantId, ticket, lookupContext);
+
+        if (normalized) {
+          imported += 1;
+        } else {
+          skipped += 1;
+        }
       }
 
       await this.prisma.integrationConfig.updateMany({
@@ -353,6 +381,10 @@ export class IntegrationsService {
             syncEnabled: this.configService.get<string>('GLPI_SYNC_ENABLED', 'false') === 'true',
             lastSyncAt: new Date().toISOString(),
             lastSyncCount: imported,
+            lastSyncSkipped: skipped,
+            syncDays: syncOptions.syncDays,
+            activeOnly: syncOptions.activeOnly,
+            activeStatuses: Array.from(syncOptions.statuses),
           },
         },
       });
@@ -365,8 +397,12 @@ export class IntegrationsService {
           entityId: IntegrationProvider.GLPI,
           metadata: {
             imported,
+            skipped,
             startedAt: startedAt.toISOString(),
             finishedAt: new Date().toISOString(),
+            syncDays: syncOptions.syncDays,
+            activeOnly: syncOptions.activeOnly,
+            activeStatuses: Array.from(syncOptions.statuses),
           },
         },
       });
@@ -375,8 +411,9 @@ export class IntegrationsService {
         provider: IntegrationProvider.GLPI,
         accepted: true,
         status: 'synced',
-        message: `Sincronismo GLPI concluido: ${imported} chamados importados/atualizados.`,
+        message: `Sincronismo GLPI concluido: ${imported} chamados ativos/recentes importados ou atualizados.`,
         imported,
+        skipped,
       };
     } finally {
       await this.closeGlpiSession(session.sessionToken).catch(() => undefined);
@@ -422,9 +459,15 @@ export class IntegrationsService {
     });
   }
 
-  private async fetchGlpiTickets(sessionToken: string, limit: number): Promise<GlpiTicketPayload[]> {
+  private async fetchGlpiTickets(sessionToken: string, syncOptions: GlpiSyncOptions): Promise<GlpiTicketPayload[]> {
     const { apiBaseUrl, appToken } = this.getGlpiConfig();
-    const response = await fetch(`${apiBaseUrl}/Ticket?range=0-${Math.max(limit - 1, 0)}`, {
+    const params = new URLSearchParams({
+      range: `0-${Math.max(syncOptions.overfetchLimit - 1, 0)}`,
+      sort: 'date_mod',
+      order: 'DESC',
+      expand_dropdowns: 'true',
+    });
+    const response = await fetch(`${apiBaseUrl}/Ticket?${params.toString()}`, {
       method: 'GET',
       headers: {
         'App-Token': appToken,
@@ -437,15 +480,103 @@ export class IntegrationsService {
     }
 
     const body = (await response.json()) as unknown;
+    const tickets = Array.isArray(body) ? body.map((ticket) => asRecord(ticket) as GlpiTicketPayload) : [];
 
-    return Array.isArray(body) ? body.map((ticket) => asRecord(ticket) as GlpiTicketPayload) : [];
+    return filterGlpiTicketsForSync(tickets, syncOptions).slice(0, syncOptions.limit);
   }
 
-  private async upsertGlpiTicket(tenantId: string, ticket: GlpiTicketPayload) {
+  private createGlpiLookupContext(sessionToken: string): GlpiLookupContext {
+    return {
+      sessionToken,
+      users: new Map(),
+      categories: new Map(),
+      entities: new Map(),
+      groups: new Map(),
+    };
+  }
+
+  private async fetchGlpiItem(
+    context: GlpiLookupContext,
+    itemType: 'User' | 'ITILCategory' | 'Entity' | 'Group',
+    id?: string,
+  ) {
+    const normalizedId = normalizeExternalId(id);
+
+    if (!normalizedId) {
+      return null;
+    }
+
+    const cache =
+      itemType === 'User'
+        ? context.users
+        : itemType === 'ITILCategory'
+          ? context.categories
+          : itemType === 'Entity'
+            ? context.entities
+            : context.groups;
+
+    if (!cache.has(normalizedId)) {
+      cache.set(
+        normalizedId,
+        this.fetchGlpiRecord(context.sessionToken, `${itemType}/${normalizedId}`).then((record) =>
+          Array.isArray(record) ? null : record,
+        ),
+      );
+    }
+
+    return cache.get(normalizedId);
+  }
+
+  private async fetchGlpiCollection(context: GlpiLookupContext, path: string) {
+    const response = await this.fetchGlpiRecord(context.sessionToken, path);
+
+    return Array.isArray(response) ? response.map(asRecord) : [];
+  }
+
+  private async fetchGlpiRecord(sessionToken: string, path: string): Promise<Record<string, unknown> | Record<string, unknown>[] | null> {
+    const { apiBaseUrl, appToken } = this.getGlpiConfig();
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/${path}`, {
+        method: 'GET',
+        headers: {
+          'App-Token': appToken,
+          'Session-Token': sessionToken,
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const body = (await response.json()) as unknown;
+
+      return Array.isArray(body) ? body.map(asRecord) : asRecord(body);
+    } catch {
+      return null;
+    }
+  }
+
+  private getGlpiSyncOptions(): GlpiSyncOptions {
+    const limit = clamp(Number(this.configService.get<string>('GLPI_SYNC_LIMIT', '50')), 1, 200);
+    const syncDays = clamp(Number(this.configService.get<string>('GLPI_SYNC_DAYS', '90')), 0, 3650);
+    const activeOnly = this.configService.get<string>('GLPI_SYNC_ACTIVE_ONLY', 'true') !== 'false';
+    const statuses = parseNumberSet(this.configService.get<string>('GLPI_SYNC_STATUSES', '1,2,3,4'));
+
+    return {
+      limit,
+      overfetchLimit: Math.min(limit * 4, 500),
+      syncDays,
+      activeOnly,
+      statuses: statuses.size > 0 ? statuses : new Set([1, 2, 3, 4]),
+    };
+  }
+
+  private async upsertGlpiTicket(tenantId: string, ticket: GlpiTicketPayload, context: GlpiLookupContext) {
     const glpiId = readUnknownString(ticket.id) ?? readUnknownString(ticket['2']);
 
     if (!glpiId) {
-      return;
+      return false;
     }
 
     const externalTicketId = `glpi-ticket-${glpiId}`;
@@ -453,15 +584,37 @@ export class IntegrationsService {
     const content = stripHtml(readUnknownString(ticket.content) ?? readUnknownString(ticket['21']) ?? '');
     const openedAt = parseDate(readUnknownString(ticket.date_creation) ?? readUnknownString(ticket.date) ?? readUnknownString(ticket['15'])) ?? new Date();
     const closedAt = parseDate(readUnknownString(ticket.closedate) ?? readUnknownString(ticket.solvedate));
-    const status = mapGlpiStatus(readUnknownString(ticket.status) ?? readUnknownString(ticket['12']));
+    const glpiStatus = readGlpiStatus(ticket);
+    const status = mapGlpiStatus(glpiStatus);
+    const statusText = glpiStatusLabel(glpiStatus);
     const priority = Number(readUnknownString(ticket.priority) ?? readUnknownString(ticket.urgency) ?? 0);
-    const categoryId = readUnknownString(ticket.itilcategories_id);
-    const requesterId = readUnknownString(ticket.users_id_recipient) ?? `ticket-${glpiId}`;
-    const technicianId =
-      readUnknownString(ticket.users_id_lastupdater) ??
+    const rawCategory = readUnknownString(ticket.itilcategories_id);
+    const rawEntity = readUnknownString(ticket.entities_id);
+    const rawRequester = readUnknownString(ticket.users_id_recipient);
+    const rawTechnician =
       readUnknownString(ticket.users_id_assign) ??
-      readUnknownString(ticket.users_id_tech);
-    const queueName = categoryId && categoryId !== '0' ? `GLPI Categoria ${categoryId}` : 'GLPI';
+      readUnknownString(ticket.users_id_tech) ??
+      readUnknownString(ticket.users_id_lastupdater);
+    const ticketUsers = await this.fetchGlpiCollection(context, `Ticket/${glpiId}/Ticket_User`);
+    const ticketGroups = await this.fetchGlpiCollection(context, `Ticket/${glpiId}/Group_Ticket`);
+    const requesterId =
+      findGlpiRelationId(ticketUsers, 1, 'users_id') ?? normalizeExternalId(rawRequester) ?? `ticket-${glpiId}`;
+    const technicianId = findGlpiRelationId(ticketUsers, 2, 'users_id') ?? normalizeExternalId(rawTechnician);
+    const groupId = findGlpiRelationId(ticketGroups, 2, 'groups_id') ?? findGlpiRelationId(ticketGroups, undefined, 'groups_id');
+    const categoryId = normalizeExternalId(rawCategory);
+    const entityId = normalizeExternalId(rawEntity);
+    const requesterRecord = await this.fetchGlpiItem(context, 'User', requesterId);
+    const technicianRecord = await this.fetchGlpiItem(context, 'User', technicianId);
+    const categoryRecord = await this.fetchGlpiItem(context, 'ITILCategory', categoryId);
+    const entityRecord = await this.fetchGlpiItem(context, 'Entity', entityId);
+    const groupRecord = await this.fetchGlpiItem(context, 'Group', groupId);
+    const requesterName = buildGlpiUserName(requesterRecord, rawRequester, requesterId, 'Solicitante');
+    const technicianName = technicianId ? buildGlpiUserName(technicianRecord, rawTechnician, technicianId, 'Tecnico') : null;
+    const categoryName = buildGlpiItemName(categoryRecord, rawCategory, categoryId, 'Categoria');
+    const entityName = buildGlpiItemName(entityRecord, rawEntity, entityId, 'Entidade');
+    const groupName = buildGlpiItemName(groupRecord, readRelationDisplayName(ticketGroups, groupId), groupId, 'Grupo');
+    const queueName = groupName ?? categoryName ?? entityName ?? 'GLPI';
+    const groupLabel = entityName ?? groupName ?? categoryName ?? 'GLPI';
     const risk = priority >= 4 ? 'alto' : priority >= 3 ? 'medio' : 'baixo';
     const payloadHash = createHash('sha256').update(JSON.stringify(ticket)).digest('hex');
     const rawPayload = toInputJson(ticket);
@@ -503,19 +656,27 @@ export class IntegrationsService {
         },
       },
       update: {
-        name: `Requerente GLPI ${requesterId}`,
+        name: requesterName,
         metadata: {
           source: 'GLPI',
           requesterId,
+          requesterName,
+          entityName,
+          groupName,
+          categoryName,
         },
       },
       create: {
         tenantId,
         externalId: `glpi-requester-${requesterId}`,
-        name: `Requerente GLPI ${requesterId}`,
+        name: requesterName,
         metadata: {
           source: 'GLPI',
           requesterId,
+          requesterName,
+          entityName,
+          groupName,
+          categoryName,
         },
       },
     });
@@ -524,7 +685,7 @@ export class IntegrationsService {
       where: {
         tenantId_externalId: {
           tenantId,
-          externalId: categoryId ? `glpi-category-${categoryId}` : 'glpi-default',
+          externalId: groupId ? `glpi-group-${groupId}` : categoryId ? `glpi-category-${categoryId}` : entityId ? `glpi-entity-${entityId}` : 'glpi-default',
         },
       },
       update: {
@@ -533,7 +694,7 @@ export class IntegrationsService {
       },
       create: {
         tenantId,
-        externalId: categoryId ? `glpi-category-${categoryId}` : 'glpi-default',
+        externalId: groupId ? `glpi-group-${groupId}` : categoryId ? `glpi-category-${categoryId}` : entityId ? `glpi-entity-${entityId}` : 'glpi-default',
         name: queueName,
         isActive: true,
       },
@@ -548,13 +709,13 @@ export class IntegrationsService {
               },
             },
             update: {
-              name: `Tecnico GLPI ${technicianId}`,
+              name: technicianName ?? `Tecnico #${technicianId}`,
               isActive: true,
             },
             create: {
               tenantId,
               externalId: `glpi-technician-${technicianId}`,
-              name: `Tecnico GLPI ${technicianId}`,
+              name: technicianName ?? `Tecnico #${technicianId}`,
               isActive: true,
             },
           })
@@ -570,7 +731,7 @@ export class IntegrationsService {
       update: {
         contactId: contact.id,
         queueId: queue.id,
-        agentId: agent?.id,
+        agentId: agent?.id ?? null,
         status,
         channel: 'GLPI',
         subject,
@@ -580,8 +741,16 @@ export class IntegrationsService {
         metadata: buildGlpiTicketMetadata({
           glpiId,
           status,
+          statusText,
           priority,
           categoryId,
+          categoryName,
+          entityName,
+          groupName,
+          groupLabel,
+          queueName,
+          requesterName,
+          technicianName,
           risk,
           content,
           subject,
@@ -592,7 +761,7 @@ export class IntegrationsService {
         externalId: externalTicketId,
         contactId: contact.id,
         queueId: queue.id,
-        agentId: agent?.id,
+        agentId: agent?.id ?? null,
         status,
         channel: 'GLPI',
         subject,
@@ -602,8 +771,16 @@ export class IntegrationsService {
         metadata: buildGlpiTicketMetadata({
           glpiId,
           status,
+          statusText,
           priority,
           categoryId,
+          categoryName,
+          entityName,
+          groupName,
+          groupLabel,
+          queueName,
+          requesterName,
+          technicianName,
           risk,
           content,
           subject,
@@ -652,8 +829,9 @@ export class IntegrationsService {
       update: {
         ticketId: normalizedTicket.id,
         contactId: contact.id,
-        agentId: agent?.id,
+        agentId: agent?.id ?? null,
         rawEventId: rawEvent.id,
+        senderName: contact.name,
         content,
         sentAt: openedAt,
       },
@@ -672,9 +850,16 @@ export class IntegrationsService {
         metadata: {
           source: 'GLPI',
           senderRole: 'Solicitante',
+          requesterName,
+          technicianName,
+          groupName,
+          categoryName,
+          entityName,
         },
       },
     });
+
+    return true;
   }
 
   private getGlpiConfig() {
@@ -897,9 +1082,7 @@ function parseDate(value?: string) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function mapGlpiStatus(value?: string) {
-  const status = Number(value);
-
+function mapGlpiStatus(status?: number) {
   if (status === 5 || status === 6) {
     return TicketStatus.CLOSED;
   }
@@ -911,19 +1094,196 @@ function mapGlpiStatus(value?: string) {
   return TicketStatus.OPEN;
 }
 
+function readGlpiStatus(ticket: GlpiTicketPayload) {
+  const rawStatus = readUnknownString(ticket.status) ?? readUnknownString(ticket['12']) ?? '';
+  const numericStatus = Number(rawStatus);
+
+  if (Number.isFinite(numericStatus) && numericStatus > 0) {
+    return numericStatus;
+  }
+
+  const normalizedStatus = rawStatus
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+  if (normalizedStatus.includes('novo')) {
+    return 1;
+  }
+
+  if (normalizedStatus.includes('atribu')) {
+    return 2;
+  }
+
+  if (normalizedStatus.includes('planej')) {
+    return 3;
+  }
+
+  if (normalizedStatus.includes('pend')) {
+    return 4;
+  }
+
+  if (normalizedStatus.includes('solucion')) {
+    return 5;
+  }
+
+  if (normalizedStatus.includes('fech')) {
+    return 6;
+  }
+
+  return 0;
+}
+
+function glpiStatusLabel(status?: number) {
+  const labels: Record<number, string> = {
+    1: 'Novo',
+    2: 'Atribuido',
+    3: 'Planejado',
+    4: 'Pendente',
+    5: 'Solucionado',
+    6: 'Fechado',
+  };
+
+  return status ? labels[status] ?? `Status ${status}` : 'Sem status';
+}
+
+function filterGlpiTicketsForSync(tickets: GlpiTicketPayload[], options: GlpiSyncOptions) {
+  const since = options.syncDays > 0 ? Date.now() - options.syncDays * 24 * 60 * 60 * 1000 : 0;
+
+  return tickets.filter((ticket) => {
+    const status = readGlpiStatus(ticket);
+    const active = status > 0 && options.statuses.has(status);
+
+    if (options.activeOnly && status > 0) {
+      return active;
+    }
+
+    if (since === 0) {
+      return true;
+    }
+
+    const referenceDate =
+      parseDate(readUnknownString(ticket.date_mod) ?? readUnknownString(ticket['19'])) ??
+      parseDate(readUnknownString(ticket.date_creation) ?? readUnknownString(ticket.date) ?? readUnknownString(ticket['15']));
+
+    return active || Boolean(referenceDate && referenceDate.getTime() >= since);
+  });
+}
+
+function parseNumberSet(value?: string) {
+  return new Set(
+    (value ?? '')
+      .split(',')
+      .map((item) => Number(item.trim()))
+      .filter((item) => Number.isFinite(item) && item > 0),
+  );
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeExternalId(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed || trimmed === '0') {
+    return undefined;
+  }
+
+  return /^\d+$/.test(trimmed) ? trimmed : undefined;
+}
+
+function findGlpiRelationId(rows: Record<string, unknown>[], type: number | undefined, key: string) {
+  const match = rows.find((row) => {
+    if (type === undefined) {
+      return Boolean(normalizeExternalId(readUnknownString(row[key])));
+    }
+
+    return Number(readUnknownString(row.type)) === type && Boolean(normalizeExternalId(readUnknownString(row[key])));
+  });
+
+  return normalizeExternalId(readUnknownString(match?.[key]));
+}
+
+function readRelationDisplayName(rows: Record<string, unknown>[], id?: string) {
+  const row = rows.find((item) => normalizeExternalId(readUnknownString(item.groups_id)) === id);
+
+  return readUnknownString(row?.groups_id);
+}
+
+function buildGlpiUserName(record: Record<string, unknown> | null | undefined, rawValue: string | undefined, id: string, prefix: string) {
+  const firstName = readUnknownString(record?.firstname);
+  const realName = readUnknownString(record?.realname);
+  const fullName = [firstName, realName].filter(Boolean).join(' ').trim();
+  const name = fullName || readUnknownString(record?.name) || readUnknownString(record?.completename);
+
+  if (name) {
+    return name;
+  }
+
+  if (rawValue && !normalizeExternalId(rawValue)) {
+    return rawValue;
+  }
+
+  return `${prefix} #${id}`;
+}
+
+function buildGlpiItemName(
+  record: Record<string, unknown> | null | undefined,
+  rawValue: string | undefined,
+  id: string | undefined,
+  prefix: string,
+) {
+  const name = readUnknownString(record?.completename) || readUnknownString(record?.name);
+
+  if (name) {
+    return name;
+  }
+
+  if (rawValue && !normalizeExternalId(rawValue)) {
+    return rawValue;
+  }
+
+  return id ? `${prefix} #${id}` : null;
+}
+
 function buildGlpiTicketMetadata({
   glpiId,
   status,
+  statusText,
   priority,
   categoryId,
+  categoryName,
+  entityName,
+  groupName,
+  groupLabel,
+  queueName,
+  requesterName,
+  technicianName,
   risk,
   content,
   subject,
 }: {
   glpiId: string;
   status: TicketStatus;
+  statusText: string;
   priority: number;
   categoryId?: string;
+  categoryName: string | null;
+  entityName: string | null;
+  groupName: string | null;
+  groupLabel: string;
+  queueName: string;
+  requesterName: string;
+  technicianName: string | null;
   risk: string;
   content: string;
   subject: string;
@@ -933,13 +1293,20 @@ function buildGlpiTicketMetadata({
     provider: 'GLPI',
     glpiId,
     glpiStatus: status,
+    glpiStatusLabel: statusText,
     priority,
     categoryId,
-    group: 'GLPI',
-    signal: 'ITSM',
+    categoryName,
+    entityName,
+    teamName: groupName,
+    queueDisplayName: queueName,
+    agentDisplayName: technicianName ?? 'Sem tecnico atribuido',
+    customerDisplayName: requesterName,
+    group: groupLabel,
+    signal: `ITSM / ${statusText}`,
     sentiment: risk === 'alto' ? 'negativo' : 'neutro',
     risk,
-    resolutionStatus: status === TicketStatus.CLOSED ? 'Resolvido' : 'Em andamento',
+    resolutionStatus: statusText,
     waitMinutes: 0,
     summary: content ? truncate(content, 280) : `Chamado GLPI sincronizado: ${subject}`,
     isComplaint: false,

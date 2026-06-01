@@ -11,6 +11,8 @@ export type TicketFilters = {
   rating?: string;
   sentiment?: string;
   search?: string;
+  period?: string;
+  activeOnly?: string;
   page?: string;
   pageSize?: string;
 };
@@ -97,6 +99,32 @@ function matchesFilters(ticket: PresentedTicket, filters: TicketFilters) {
     (!filters.agent || ticket.agent === filters.agent) &&
     (!filters.sentiment || ticket.sentiment === filters.sentiment) &&
     (!rating || ticket.rating === rating) &&
-    (!search || haystack.includes(search))
+    (!search || haystack.includes(search)) &&
+    matchesPeriod(ticket, filters.period, filters.activeOnly)
   );
+}
+
+function matchesPeriod(ticket: PresentedTicket, period?: string, activeOnly?: string) {
+  if (activeOnly === 'true' || period === 'active') {
+    return ticket.status === 'OPEN' || ticket.status === 'PENDING';
+  }
+
+  if (!period || period === 'all') {
+    return true;
+  }
+
+  const daysByPeriod: Record<string, number> = {
+    '24h': 1,
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+    '12m': 365,
+  };
+  const days = daysByPeriod[period];
+
+  if (!days) {
+    return true;
+  }
+
+  return new Date(ticket.openedAt).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
 }
