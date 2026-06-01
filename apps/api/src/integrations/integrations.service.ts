@@ -284,8 +284,14 @@ export class IntegrationsService {
     }
 
     const checks: Array<[string | undefined, string]> = [
-      [readString(settings, 'tenantId') || this.configService.get<string>('TEAMS_TENANT_ID'), 'TEAMS_TENANT_ID'],
-      [readString(settings, 'clientId') || this.configService.get<string>('TEAMS_CLIENT_ID'), 'TEAMS_CLIENT_ID'],
+      [
+        firstConfiguredValue(readString(settings, 'tenantId'), this.configService.get<string>('TEAMS_TENANT_ID')),
+        'TEAMS_TENANT_ID',
+      ],
+      [
+        firstConfiguredValue(readString(settings, 'clientId'), this.configService.get<string>('TEAMS_CLIENT_ID')),
+        'TEAMS_CLIENT_ID',
+      ],
       [this.configService.get<string>('TEAMS_CLIENT_SECRET'), 'TEAMS_CLIENT_SECRET'],
     ];
 
@@ -321,8 +327,12 @@ export class IntegrationsService {
     }
 
     return {
-      tenantId: maskId(readString(settings, 'tenantId') || this.configService.get<string>('TEAMS_TENANT_ID') || ''),
-      clientId: maskId(readString(settings, 'clientId') || this.configService.get<string>('TEAMS_CLIENT_ID') || ''),
+      tenantId: maskId(
+        firstConfiguredValue(readString(settings, 'tenantId'), this.configService.get<string>('TEAMS_TENANT_ID')) || '',
+      ),
+      clientId: maskId(
+        firstConfiguredValue(readString(settings, 'clientId'), this.configService.get<string>('TEAMS_CLIENT_ID')) || '',
+      ),
       authMethod: 'Microsoft Graph application permissions',
       permissions: ['CallRecords.Read.All'],
       syncEnabled: this.configService.get<string>('TEAMS_SYNC_ENABLED', 'false') === 'true',
@@ -1593,7 +1603,21 @@ function hasConfiguredValue(value?: string) {
     return false;
   }
 
-  return !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(value.trim());
+  const trimmed = value.trim();
+
+  if (/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(trimmed)) {
+    return false;
+  }
+
+  if (/^(SEU_|SUA_|COLE_AQUI|VALOR_|CHANGEME|CHANGE_ME)/i.test(trimmed)) {
+    return false;
+  }
+
+  return true;
+}
+
+function firstConfiguredValue(...values: Array<string | undefined>) {
+  return values.find((value) => hasConfiguredValue(value));
 }
 
 function readNumber(record: Record<string, unknown>, key: string) {
