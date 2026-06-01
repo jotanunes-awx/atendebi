@@ -250,6 +250,10 @@ export type IntegrationSyncResult = {
   rawEventId?: string;
   imported?: number;
   skipped?: number;
+  batches?: Array<{
+    source: string;
+    rows: number;
+  }>;
 };
 
 export type SettingsOverview = {

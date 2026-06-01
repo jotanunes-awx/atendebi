@@ -262,14 +262,32 @@ TEAMS_CLIENT_ID=00000000-0000-0000-0000-000000000000
 TEAMS_CLIENT_SECRET=seu-client-secret
 TEAMS_SYNC_ENABLED=false
 TEAMS_GRAPH_SCOPES=https://graph.microsoft.com/.default
+TEAMS_GRAPH_BASE_URL=https://graph.microsoft.com
+TEAMS_GRAPH_PSTN_VERSION=beta
+TEAMS_GRAPH_DIRECT_ROUTING_VERSION=v1.0
+TEAMS_SYNC_DAYS=7
+TEAMS_SYNC_MAX_PAGES=20
+TEAMS_SYNC_INCLUDE_PSTN=true
+TEAMS_SYNC_INCLUDE_DIRECT_ROUTING=true
 ```
 
 Permissoes Graph previstas para o piloto:
 
 - `CallRecords.Read.All`
-- `Reports.Read.All`
 
-No MVP, `/integrations/GLPI/test` valida a conexao real via `initSession`. `/integrations/GLPI/sync` busca chamados no GLPI, salva `raw_events` e normaliza dados para `contacts`, `queues`, `agents`, `tickets`, `messages` e tags. Sempre que o GLPI permitir, o conector tambem tenta resolver nome do solicitante, tecnico, grupo, entidade e categoria para evitar telas com IDs soltos. O conector Teams/PABX ainda fica preparado em modo dry-run ate ligarmos Microsoft Graph.
+Para configurar o Teams Phone/PABX, crie um App Registration no Microsoft Entra ID, gere um Client Secret, adicione a permissao **Application** `CallRecords.Read.All` em Microsoft Graph e clique em **Grant admin consent**. Depois rode:
+
+```bash
+curl -X POST http://localhost:3333/integrations/TEAMS_PHONE/test ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+
+curl -X POST http://localhost:3333/integrations/TEAMS_PHONE/sync ^
+  -H "x-tenant-id: local-tenant" ^
+  -H "x-roles: ATENDEBI_ADMIN"
+```
+
+No MVP, `/integrations/GLPI/test` valida a conexao real via `initSession`. `/integrations/GLPI/sync` busca chamados no GLPI, salva `raw_events` e normaliza dados para `contacts`, `queues`, `agents`, `tickets`, `messages` e tags. Sempre que o GLPI permitir, o conector tambem tenta resolver nome do solicitante, tecnico, grupo, entidade e categoria para evitar telas com IDs soltos. `/integrations/TEAMS_PHONE/test` valida token e permissao no Microsoft Graph. `/integrations/TEAMS_PHONE/sync` busca logs PSTN e Direct Routing, salva `raw_events` e normaliza chamadas para contatos, filas, atendentes, tickets, mensagens e tags.
 
 ## Status do MVP local
 

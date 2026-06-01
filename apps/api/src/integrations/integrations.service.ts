@@ -31,6 +31,18 @@ type GlpiSyncOptions = {
   statuses: Set<number>;
 };
 
+type TeamsSyncOptions = {
+  days: number;
+  maxPages: number;
+  includePstn: boolean;
+  includeDirectRouting: boolean;
+};
+
+type TeamsCallBatch = {
+  source: 'PSTN' | 'DIRECT_ROUTING';
+  rows: Record<string, unknown>[];
+};
+
 @Injectable()
 export class IntegrationsService {
   constructor(
@@ -100,6 +112,10 @@ export class IntegrationsService {
       return this.testGlpiConnection(provider);
     }
 
+    if (provider === IntegrationProvider.TEAMS_PHONE && ok) {
+      return this.testTeamsConnection(provider);
+    }
+
     return {
       provider,
       checkedAt: new Date().toISOString(),
@@ -136,6 +152,10 @@ export class IntegrationsService {
 
     if (provider === IntegrationProvider.GLPI) {
       return this.syncGlpiTickets(tenantId);
+    }
+
+    if (provider === IntegrationProvider.TEAMS_PHONE) {
+      return this.syncTeamsPhoneCalls(tenantId);
     }
 
     const now = new Date();
@@ -304,8 +324,12 @@ export class IntegrationsService {
       tenantId: maskId(readString(settings, 'tenantId') || this.configService.get<string>('TEAMS_TENANT_ID') || ''),
       clientId: maskId(readString(settings, 'clientId') || this.configService.get<string>('TEAMS_CLIENT_ID') || ''),
       authMethod: 'Microsoft Graph application permissions',
-      permissions: ['CallRecords.Read.All', 'Reports.Read.All'],
+      permissions: ['CallRecords.Read.All'],
       syncEnabled: this.configService.get<string>('TEAMS_SYNC_ENABLED', 'false') === 'true',
+      syncDays: this.getTeamsSyncOptions().days,
+      syncMaxPages: this.getTeamsSyncOptions().maxPages,
+      pstnCalls: this.getTeamsSyncOptions().includePstn,
+      directRoutingCalls: this.getTeamsSyncOptions().includeDirectRouting,
     };
   }
 
@@ -348,6 +372,110 @@ export class IntegrationsService {
         ],
       };
     }
+  }
+
+  private async testTeamsConnection(provider: SupportedProvider) {
+    const checkedAt = new Date().toISOString();
+
+    try {
+      const token = await this.getTeamsGraphToken();
+      const probes = await Promise.all([
+        this.probeTeamsEndpoint(token, 'PSTN'),
+        this.probeTeamsEndpoint(token, 'DIRECT_ROUTING'),
+      ]);
+      const ok = probes.some((probe) => probe.ok);
+
+      return {
+        provider,
+        checkedAt,
+        ok,
+        status: ok ? 'ready' : 'permission_failed',
+        message: ok
+          ? 'Conexao com Microsoft Graph validada. O proximo passo e executar o sincronismo do Teams Phone.'
+          : 'Token do Entra ID foi emitido, mas o Graph negou Call Records. Verifique CallRecords.Read.All com admin consent.',
+        details: [
+          { item: 'Client credentials gerou token no Entra ID', status: 'ok' },
+          ...probes.map((probe) => ({
+            item: probe.label,
+            status: probe.ok ? 'ok' : `failed: ${probe.message}`,
+          })),
+        ],
+      };
+    } catch (error) {
+      return {
+        provider,
+        checkedAt,
+        ok: false,
+        status: 'connection_failed',
+        message: error instanceof Error ? error.message : 'Nao foi possivel validar o Microsoft Graph.',
+        details: [
+          { item: 'Verificar TEAMS_TENANT_ID, TEAMS_CLIENT_ID e TEAMS_CLIENT_SECRET', status: 'failed' },
+          { item: 'Verificar permissao Application CallRecords.Read.All com admin consent', status: 'failed' },
+        ],
+      };
+    }
+  }
+
+  private async syncTeamsPhoneCalls(tenantId: string) {
+    const startedAt = new Date();
+    const token = await this.getTeamsGraphToken();
+    const syncOptions = this.getTeamsSyncOptions();
+    const batches = await this.fetchTeamsCallBatches(token, syncOptions);
+    let imported = 0;
+
+    for (const batch of batches) {
+      for (const row of batch.rows) {
+        await this.upsertTeamsCall(tenantId, batch.source, row);
+        imported += 1;
+      }
+    }
+
+    await this.prisma.integrationConfig.updateMany({
+      where: { tenantId, provider: IntegrationProvider.TEAMS_PHONE },
+      data: {
+        isActive: true,
+        settings: {
+          mode: 'configured',
+          tenantId: this.configService.get<string>('TEAMS_TENANT_ID') ?? '',
+          clientId: this.configService.get<string>('TEAMS_CLIENT_ID') ?? '',
+          authMethod: 'client_credentials',
+          syncStrategy: 'graph-callrecords',
+          syncEnabled: this.configService.get<string>('TEAMS_SYNC_ENABLED', 'false') === 'true',
+          permissions: ['CallRecords.Read.All'],
+          lastSyncAt: new Date().toISOString(),
+          lastSyncCount: imported,
+          syncDays: syncOptions.days,
+          syncMaxPages: syncOptions.maxPages,
+          includePstn: syncOptions.includePstn,
+          includeDirectRouting: syncOptions.includeDirectRouting,
+        },
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        action: 'integration.teams_phone.sync.completed',
+        entityType: 'integration',
+        entityId: IntegrationProvider.TEAMS_PHONE,
+        metadata: {
+          imported,
+          batches: batches.map((batch) => ({ source: batch.source, rows: batch.rows.length })),
+          startedAt: startedAt.toISOString(),
+          finishedAt: new Date().toISOString(),
+          syncDays: syncOptions.days,
+        },
+      },
+    });
+
+    return {
+      provider: IntegrationProvider.TEAMS_PHONE,
+      accepted: true,
+      status: 'synced',
+      message: `Sincronismo Teams Phone concluido: ${imported} ligacoes importadas ou atualizadas.`,
+      imported,
+      batches: batches.map((batch) => ({ source: batch.source, rows: batch.rows.length })),
+    };
   }
 
   private async syncGlpiTickets(tenantId: string) {
@@ -910,6 +1038,405 @@ export class IntegrationsService {
       userToken,
     };
   }
+
+  private getTeamsConfig() {
+    const tenantId = this.configService.get<string>('TEAMS_TENANT_ID') ?? '';
+    const clientId = this.configService.get<string>('TEAMS_CLIENT_ID') ?? '';
+    const clientSecret = this.configService.get<string>('TEAMS_CLIENT_SECRET') ?? '';
+    const graphBaseUrl = (this.configService.get<string>('TEAMS_GRAPH_BASE_URL') ?? 'https://graph.microsoft.com').replace(/\/$/, '');
+
+    if (!tenantId || !clientId || !clientSecret) {
+      throw new Error('TEAMS_TENANT_ID, TEAMS_CLIENT_ID e TEAMS_CLIENT_SECRET precisam estar configurados no .env da API.');
+    }
+
+    return {
+      tenantId,
+      clientId,
+      clientSecret,
+      graphBaseUrl,
+    };
+  }
+
+  private getTeamsSyncOptions(): TeamsSyncOptions {
+    return {
+      days: clamp(Number(this.configService.get<string>('TEAMS_SYNC_DAYS', '7')), 1, 30),
+      maxPages: clamp(Number(this.configService.get<string>('TEAMS_SYNC_MAX_PAGES', '20')), 1, 1000),
+      includePstn: this.configService.get<string>('TEAMS_SYNC_INCLUDE_PSTN', 'true') !== 'false',
+      includeDirectRouting: this.configService.get<string>('TEAMS_SYNC_INCLUDE_DIRECT_ROUTING', 'true') !== 'false',
+    };
+  }
+
+  private async getTeamsGraphToken() {
+    const { tenantId, clientId, clientSecret } = this.getTeamsConfig();
+    const response = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        scope: 'https://graph.microsoft.com/.default',
+        grant_type: 'client_credentials',
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Entra ID nao emitiu token para Teams Phone. Status ${response.status}: ${truncate(body, 240)}`);
+    }
+
+    const body = (await response.json()) as { access_token?: string };
+
+    if (!body.access_token) {
+      throw new Error('Entra ID nao retornou access_token para Microsoft Graph.');
+    }
+
+    return body.access_token;
+  }
+
+  private async probeTeamsEndpoint(token: string, source: TeamsCallBatch['source']) {
+    const now = new Date();
+    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const url = this.buildTeamsCallRecordsUrl(source, from, now);
+
+    try {
+      await this.fetchGraphCollection(token, url, 1);
+
+      return {
+        ok: true,
+        label: source === 'PSTN' ? 'Graph getPstnCalls respondeu' : 'Graph getDirectRoutingCalls respondeu',
+        message: 'ok',
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        label: source === 'PSTN' ? 'Graph getPstnCalls respondeu' : 'Graph getDirectRoutingCalls respondeu',
+        message: error instanceof Error ? error.message : 'erro desconhecido',
+      };
+    }
+  }
+
+  private async fetchTeamsCallBatches(token: string, options: TeamsSyncOptions): Promise<TeamsCallBatch[]> {
+    const now = new Date();
+    const from = new Date(now.getTime() - options.days * 24 * 60 * 60 * 1000);
+    const batches: TeamsCallBatch[] = [];
+    const errors: string[] = [];
+
+    for (const source of ['PSTN', 'DIRECT_ROUTING'] as const) {
+      if ((source === 'PSTN' && !options.includePstn) || (source === 'DIRECT_ROUTING' && !options.includeDirectRouting)) {
+        continue;
+      }
+
+      try {
+        const rows = await this.fetchGraphCollection(token, this.buildTeamsCallRecordsUrl(source, from, now), options.maxPages);
+        batches.push({ source, rows });
+      } catch (error) {
+        errors.push(`${source}: ${error instanceof Error ? error.message : 'erro desconhecido'}`);
+      }
+    }
+
+    if (batches.length === 0 && errors.length > 0) {
+      throw new Error(`Nao foi possivel consultar Teams Phone no Microsoft Graph. ${errors.join(' | ')}`);
+    }
+
+    return batches;
+  }
+
+  private buildTeamsCallRecordsUrl(source: TeamsCallBatch['source'], from: Date, to: Date) {
+    const { graphBaseUrl } = this.getTeamsConfig();
+    const method = source === 'PSTN' ? 'getPstnCalls' : 'getDirectRoutingCalls';
+    const apiVersion =
+      source === 'PSTN'
+        ? this.configService.get<string>('TEAMS_GRAPH_PSTN_VERSION', 'beta')
+        : this.configService.get<string>('TEAMS_GRAPH_DIRECT_ROUTING_VERSION', 'v1.0');
+    const fromValue = encodeURIComponent(from.toISOString());
+    const toValue = encodeURIComponent(to.toISOString());
+
+    return `${graphBaseUrl}/${apiVersion}/communications/callRecords/${method}(fromDateTime=${fromValue},toDateTime=${toValue})`;
+  }
+
+  private async fetchGraphCollection(token: string, initialUrl: string, maxPages: number) {
+    let url: string | undefined = initialUrl;
+    const rows: Record<string, unknown>[] = [];
+
+    for (let page = 0; page < maxPages && url; page += 1) {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Microsoft Graph retornou ${response.status}: ${truncate(body, 240)}`);
+      }
+
+      const body = (await response.json()) as Record<string, unknown>;
+      const value = Array.isArray(body.value) ? body.value.map(asRecord) : [];
+      rows.push(...value);
+      url = readUnknownString(body['@odata.nextLink']);
+    }
+
+    return rows;
+  }
+
+  private async upsertTeamsCall(tenantId: string, source: TeamsCallBatch['source'], row: Record<string, unknown>) {
+    const payloadHash = createHash('sha256').update(JSON.stringify(row)).digest('hex');
+    const rowId =
+      readUnknownString(row.id) ??
+      readUnknownString(row.callId) ??
+      readUnknownString(row.correlationId) ??
+      payloadHash.slice(0, 40);
+    const externalCallId = `teams-phone-${source.toLowerCase()}-${rowId}`;
+    const callerNumber = readUnknownString(row.callerNumber) ?? readUnknownString(row.caller) ?? 'Numero nao informado';
+    const calleeNumber = readUnknownString(row.calleeNumber) ?? readUnknownString(row.callee) ?? 'Numero nao informado';
+    const userDisplayName =
+      readUnknownString(row.userDisplayName) ??
+      readUnknownString(row.displayName) ??
+      readUnknownString(row.userPrincipalName) ??
+      'Usuario Teams nao identificado';
+    const userPrincipalName = readUnknownString(row.userPrincipalName);
+    const callType = readUnknownString(row.callType) ?? readUnknownString(row.callDirection) ?? 'Teams Phone';
+    const direction = inferTeamsDirection(callType);
+    const startAt = parseDate(
+      readUnknownString(row.startDateTime) ?? readUnknownString(row.inviteDateTime) ?? readUnknownString(row.callStartTime),
+    ) ?? new Date();
+    const durationSeconds = readDurationSeconds(row);
+    const endAt =
+      parseDate(readUnknownString(row.endDateTime) ?? readUnknownString(row.callEndTime)) ??
+      new Date(startAt.getTime() + durationSeconds * 1000);
+    const callFailed = isTeamsCallFailed(row, durationSeconds);
+    const ticketStatus = callFailed ? TicketStatus.CANCELED : TicketStatus.CLOSED;
+    const sourceLabel = source === 'PSTN' ? 'PSTN' : 'Direct Routing';
+    const queueName = `Teams Phone - ${sourceLabel}`;
+    const counterpartyNumber = direction === MessageDirection.INBOUND ? callerNumber : calleeNumber;
+
+    const rawEvent = await this.prisma.rawEvent.upsert({
+      where: {
+        tenantId_provider_providerEventId: {
+          tenantId,
+          provider: IntegrationProvider.TEAMS_PHONE,
+          providerEventId: externalCallId,
+        },
+      },
+      update: {
+        payloadHash,
+        payload: toInputJson(row),
+        eventType: `teams_phone.${source.toLowerCase()}.call`,
+        processingStatus: RawEventStatus.PROCESSED,
+        processedAt: new Date(),
+        errorMessage: null,
+      },
+      create: {
+        tenantId,
+        provider: IntegrationProvider.TEAMS_PHONE,
+        providerEventId: externalCallId,
+        eventType: `teams_phone.${source.toLowerCase()}.call`,
+        payloadHash,
+        payload: toInputJson(row),
+        processingStatus: RawEventStatus.PROCESSED,
+        processedAt: new Date(),
+      },
+    });
+
+    const contact = await this.prisma.contact.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: `teams-phone-contact-${counterpartyNumber.replace(/\W/g, '') || rowId}`,
+        },
+      },
+      update: {
+        name: counterpartyNumber,
+        phone: counterpartyNumber,
+        metadata: {
+          source: 'TEAMS_PHONE',
+          callerNumber,
+          calleeNumber,
+        },
+      },
+      create: {
+        tenantId,
+        externalId: `teams-phone-contact-${counterpartyNumber.replace(/\W/g, '') || rowId}`,
+        name: counterpartyNumber,
+        phone: counterpartyNumber,
+        metadata: {
+          source: 'TEAMS_PHONE',
+          callerNumber,
+          calleeNumber,
+        },
+      },
+    });
+
+    const queue = await this.prisma.supportQueue.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: `teams-phone-${source.toLowerCase()}`,
+        },
+      },
+      update: { name: queueName, isActive: true },
+      create: {
+        tenantId,
+        externalId: `teams-phone-${source.toLowerCase()}`,
+        name: queueName,
+        isActive: true,
+      },
+    });
+
+    const agent = await this.prisma.agent.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: `teams-phone-user-${readUnknownString(row.userId) ?? userPrincipalName ?? userDisplayName}`,
+        },
+      },
+      update: {
+        name: userDisplayName,
+        email: userPrincipalName,
+        isActive: true,
+      },
+      create: {
+        tenantId,
+        externalId: `teams-phone-user-${readUnknownString(row.userId) ?? userPrincipalName ?? userDisplayName}`,
+        name: userDisplayName,
+        email: userPrincipalName,
+        isActive: true,
+      },
+    });
+
+    const subject = `${teamsDirectionLabel(direction)} ${callerNumber} -> ${calleeNumber}`;
+    const ticket = await this.prisma.ticket.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: externalCallId,
+        },
+      },
+      update: {
+        contactId: contact.id,
+        queueId: queue.id,
+        agentId: agent.id,
+        status: ticketStatus,
+        channel: 'Teams Phone',
+        subject,
+        openedAt: startAt,
+        closedAt: endAt,
+        firstResponseAt: startAt,
+        metadata: buildTeamsTicketMetadata({
+          source,
+          sourceLabel,
+          callType,
+          callerNumber,
+          calleeNumber,
+          durationSeconds,
+          userDisplayName,
+          userPrincipalName,
+          callFailed,
+        }),
+      },
+      create: {
+        tenantId,
+        externalId: externalCallId,
+        contactId: contact.id,
+        queueId: queue.id,
+        agentId: agent.id,
+        status: ticketStatus,
+        channel: 'Teams Phone',
+        subject,
+        openedAt: startAt,
+        closedAt: endAt,
+        firstResponseAt: startAt,
+        metadata: buildTeamsTicketMetadata({
+          source,
+          sourceLabel,
+          callType,
+          callerNumber,
+          calleeNumber,
+          durationSeconds,
+          userDisplayName,
+          userPrincipalName,
+          callFailed,
+        }),
+      },
+    });
+
+    await this.attachTag(tenantId, ticket.id, 'Teams Phone', '#6264a7');
+    await this.attachTag(tenantId, ticket.id, sourceLabel, source === 'PSTN' ? '#0ea5e9' : '#22c55e');
+
+    if (callFailed) {
+      await this.attachTag(tenantId, ticket.id, 'Abandono', '#f97316');
+    }
+
+    await this.prisma.message.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: `${externalCallId}-summary`,
+        },
+      },
+      update: {
+        ticketId: ticket.id,
+        contactId: contact.id,
+        agentId: agent.id,
+        rawEventId: rawEvent.id,
+        content: teamsCallSummary({ sourceLabel, direction, callerNumber, calleeNumber, durationSeconds, callFailed }),
+        sentAt: startAt,
+      },
+      create: {
+        tenantId,
+        ticketId: ticket.id,
+        contactId: contact.id,
+        agentId: agent.id,
+        rawEventId: rawEvent.id,
+        externalId: `${externalCallId}-summary`,
+        direction,
+        senderName: direction === MessageDirection.INBOUND ? counterpartyNumber : userDisplayName,
+        content: teamsCallSummary({ sourceLabel, direction, callerNumber, calleeNumber, durationSeconds, callFailed }),
+        contentType: 'application/teams-call-summary',
+        sentAt: startAt,
+        metadata: {
+          source: 'TEAMS_PHONE',
+          senderRole: direction === MessageDirection.INBOUND ? 'Origem externa' : 'Usuario Teams',
+        },
+      },
+    });
+  }
+
+  private async attachTag(tenantId: string, ticketId: string, name: string, color: string) {
+    const tag = await this.prisma.tag.upsert({
+      where: {
+        tenantId_name: {
+          tenantId,
+          name,
+        },
+      },
+      update: { color },
+      create: {
+        tenantId,
+        name,
+        color,
+      },
+    });
+
+    await this.prisma.ticketTag.upsert({
+      where: {
+        tenantId_ticketId_tagId: {
+          tenantId,
+          ticketId,
+          tagId: tag.id,
+        },
+      },
+      update: {},
+      create: {
+        tenantId,
+        ticketId,
+        tagId: tag.id,
+      },
+    });
+  }
 }
 
 type GlpiTicketPayload = Record<string, unknown>;
@@ -1356,6 +1883,161 @@ function buildGlpiTicketMetadata({
     botFallback: false,
     unresolved: status !== TicketStatus.CLOSED,
   };
+}
+
+function buildTeamsTicketMetadata({
+  source,
+  sourceLabel,
+  callType,
+  callerNumber,
+  calleeNumber,
+  durationSeconds,
+  userDisplayName,
+  userPrincipalName,
+  callFailed,
+}: {
+  source: TeamsCallBatch['source'];
+  sourceLabel: string;
+  callType: string;
+  callerNumber: string;
+  calleeNumber: string;
+  durationSeconds: number;
+  userDisplayName: string;
+  userPrincipalName?: string;
+  callFailed: boolean;
+}) {
+  const durationMinutes = Number((durationSeconds / 60).toFixed(1));
+
+  return {
+    source: 'TEAMS_PHONE',
+    provider: 'TEAMS_PHONE',
+    graphSource: source,
+    callType,
+    callerNumber,
+    calleeNumber,
+    durationSeconds,
+    durationMinutes,
+    userDisplayName,
+    userPrincipalName,
+    group: 'Teams Phone',
+    signal: callFailed ? 'Telefonia / Nao atendida' : `Telefonia / ${sourceLabel}`,
+    sentiment: callFailed ? 'negativo' : 'neutro',
+    risk: callFailed ? 'medio' : 'baixo',
+    resolutionStatus: callFailed ? 'Nao atendida ou falhou' : 'Chamada concluida',
+    waitMinutes: 0,
+    summary: callFailed
+      ? `Ligacao ${sourceLabel} sem atendimento ou com falha entre ${callerNumber} e ${calleeNumber}.`
+      : `Ligacao ${sourceLabel} concluida entre ${callerNumber} e ${calleeNumber}, duracao de ${durationMinutes} min.`,
+    isComplaint: false,
+    isOpportunity: false,
+    botFallback: false,
+    unresolved: callFailed,
+  };
+}
+
+function inferTeamsDirection(callType: string) {
+  const normalized = callType.toLowerCase();
+
+  if (normalized.includes('inbound') || normalized.includes('incoming') || normalized.includes('entrada') || normalized.includes('ucap_in')) {
+    return MessageDirection.INBOUND;
+  }
+
+  return MessageDirection.OUTBOUND;
+}
+
+function teamsDirectionLabel(direction: MessageDirection) {
+  return direction === MessageDirection.INBOUND ? 'Ligacao recebida' : 'Ligacao realizada';
+}
+
+function teamsCallSummary({
+  sourceLabel,
+  direction,
+  callerNumber,
+  calleeNumber,
+  durationSeconds,
+  callFailed,
+}: {
+  sourceLabel: string;
+  direction: MessageDirection;
+  callerNumber: string;
+  calleeNumber: string;
+  durationSeconds: number;
+  callFailed: boolean;
+}) {
+  const durationMinutes = Number((durationSeconds / 60).toFixed(1)).toString().replace('.', ',');
+  const status = callFailed ? 'nao atendida ou com falha' : `concluida em ${durationMinutes} min`;
+
+  return `${teamsDirectionLabel(direction)} via ${sourceLabel}: ${callerNumber} -> ${calleeNumber}. Resultado: ${status}.`;
+}
+
+function readDurationSeconds(row: Record<string, unknown>) {
+  const raw =
+    readUnknownString(row.duration) ??
+    readUnknownString(row.durationSeconds) ??
+    readUnknownString(row.callDuration) ??
+    readUnknownString(row.totalCallDuration);
+
+  if (!raw) {
+    return 0;
+  }
+
+  const numeric = Number(raw);
+
+  if (Number.isFinite(numeric)) {
+    return Math.max(0, Math.round(numeric));
+  }
+
+  const timeParts = raw.split(':').map((part) => Number(part));
+
+  if (timeParts.length === 3 && timeParts.every(Number.isFinite)) {
+    return timeParts[0] * 3600 + timeParts[1] * 60 + timeParts[2];
+  }
+
+  const isoMatch = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/i.exec(raw);
+
+  if (isoMatch) {
+    return Number(isoMatch[1] ?? 0) * 3600 + Number(isoMatch[2] ?? 0) * 60 + Number(isoMatch[3] ?? 0);
+  }
+
+  return 0;
+}
+
+function isTeamsCallFailed(row: Record<string, unknown>, durationSeconds: number) {
+  const successful = readBooleanish(row.successfulCall) ?? readBooleanish(row.isSuccessful);
+
+  if (successful === false) {
+    return true;
+  }
+
+  const result = [
+    readUnknownString(row.callResult),
+    readUnknownString(row.finalSipCodePhrase),
+    readUnknownString(row.failureDateTime),
+    readUnknownString(row.failureReason),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return durationSeconds === 0 || /fail|miss|unanswered|declined|busy|abandon|error|falha|nao atend/.test(result);
+}
+
+function readBooleanish(value: unknown) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') {
+      return true;
+    }
+
+    if (value.toLowerCase() === 'false') {
+      return false;
+    }
+  }
+
+  return undefined;
 }
 
 function stripHtml(value: string) {

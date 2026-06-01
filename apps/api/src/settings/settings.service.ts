@@ -422,8 +422,12 @@ function integrationSettingsPreview(provider: IntegrationProvider, settings: Rec
     tenantId: maskId(readString(settings, 'tenantId', '') || configService.get<string>('TEAMS_TENANT_ID') || ''),
     clientId: maskId(readString(settings, 'clientId', '') || configService.get<string>('TEAMS_CLIENT_ID') || ''),
     authMethod: 'Microsoft Graph application permissions',
-    permissions: ['CallRecords.Read.All', 'Reports.Read.All'],
+    permissions: ['CallRecords.Read.All'],
     syncEnabled: configService.get<string>('TEAMS_SYNC_ENABLED', 'false') === 'true',
+    syncDays: configService.get<string>('TEAMS_SYNC_DAYS', '7'),
+    syncMaxPages: configService.get<string>('TEAMS_SYNC_MAX_PAGES', '20'),
+    pstnCalls: configService.get<string>('TEAMS_SYNC_INCLUDE_PSTN', 'true') !== 'false',
+    directRoutingCalls: configService.get<string>('TEAMS_SYNC_INCLUDE_DIRECT_ROUTING', 'true') !== 'false',
   };
 }
 
