@@ -60,6 +60,21 @@ npm run dev
 - Swagger/OpenAPI: http://localhost:3333/docs
 - Healthcheck: http://localhost:3333/health
 
+## Acesso por IP em servidor de teste
+
+Quando o Next.js roda em modo desenvolvimento e o acesso vem por outro host/IP, configure o IP do servidor em `apps/web/.env.local`:
+
+```env
+NEXT_PUBLIC_API_URL=http://192.168.79.63:3333
+NEXT_ALLOWED_DEV_ORIGINS=192.168.79.63
+```
+
+Depois reinicie o frontend:
+
+```bash
+npm run dev -w @atendebi/web -- --hostname 0.0.0.0 --port 3001
+```
+
 ## Endpoints principais do MVP
 
 - `GET /health`
