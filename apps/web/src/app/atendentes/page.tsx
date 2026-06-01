@@ -43,7 +43,7 @@ const agentColumns: DataTableColumn<AgentMetric>[] = [
   {
     key: 'rating',
     header: 'Nota',
-    accessor: (agent) => agent.averageRating.toFixed(1).replace('.', ','),
+    accessor: (agent) => formatAverageRating(agent.averageRating),
   },
   {
     key: 'response',
@@ -133,7 +133,7 @@ export default function AtendentesPage() {
                     <Star className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
                     Nota
                   </span>
-                  <span className="font-semibold text-card-foreground">{agent.averageRating.toFixed(1).replace('.', ',')}</span>
+                  <span className="font-semibold text-card-foreground">{formatAverageRating(agent.averageRating)}</span>
                 </p>
                 <p className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-2">
@@ -179,7 +179,7 @@ export default function AtendentesPage() {
         title={drawer ? drawer.agent.name : ''}
         description={
           drawer
-            ? `${drawer.agent.openTickets} tickets em aberto, nota media ${drawer.agent.averageRating.toFixed(1).replace('.', ',')} e ${drawer.agent.complaints} reclamacoes associadas.`
+            ? `${drawer.agent.openTickets} tickets em aberto, ${formatAverageRating(drawer.agent.averageRating).toLowerCase()} e ${drawer.agent.complaints} reclamacoes associadas.`
             : ''
         }
         filters={drawer ? [{ label: 'Atendente', value: drawer.agent.name }, { label: 'Fonte', value: usingApi ? 'API real' : 'API indisponivel' }] : []}
@@ -196,6 +196,10 @@ export default function AtendentesPage() {
       />
     </DashboardShell>
   );
+}
+
+function formatAverageRating(value: number) {
+  return value > 0 ? `${value.toFixed(1).replace('.', ',')} nota media` : 'sem avaliacoes';
 }
 
 function mapAgent(agent: AgentItem): AgentMetric {

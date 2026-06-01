@@ -86,6 +86,8 @@ function matchesFilters(ticket: PresentedTicket, filters: TicketFilters) {
     ticket.queue,
     ticket.agent,
     ticket.subject,
+    ticket.status,
+    ticket.resolutionStatus,
     ticket.channel,
     ticket.group,
     ticket.tags.join(' '),

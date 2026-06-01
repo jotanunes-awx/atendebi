@@ -412,6 +412,9 @@ function integrationSettingsPreview(provider: IntegrationProvider, settings: Rec
       authMethod: 'App Token + User Token',
       syncStrategy: 'Polling incremental',
       syncEnabled: configService.get<string>('GLPI_SYNC_ENABLED', 'false') === 'true',
+      syncLimit: configService.get<string>('GLPI_SYNC_LIMIT', '0') === '0' ? 'Todo historico' : configService.get<string>('GLPI_SYNC_LIMIT'),
+      syncPageSize: configService.get<string>('GLPI_SYNC_PAGE_SIZE', '100'),
+      syncActiveOnly: configService.get<string>('GLPI_SYNC_ACTIVE_ONLY', 'false') === 'true',
     };
   }
 

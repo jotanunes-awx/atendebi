@@ -23,8 +23,9 @@ type GlpiLookupContext = {
 };
 
 type GlpiSyncOptions = {
-  limit: number;
-  overfetchLimit: number;
+  limit: number | null;
+  pageSize: number;
+  maxPages: number;
   syncDays: number;
   activeOnly: boolean;
   statuses: Set<number>;
@@ -290,7 +291,9 @@ export class IntegrationsService {
         authMethod: 'App Token + User Token',
         syncStrategy: 'Polling incremental',
         syncEnabled: this.configService.get<string>('GLPI_SYNC_ENABLED', 'false') === 'true',
-        syncLimit: syncOptions.limit,
+        syncLimit: syncOptions.limit ?? 'todos',
+        syncPageSize: syncOptions.pageSize,
+        syncMaxPages: syncOptions.maxPages,
         activeOnly: syncOptions.activeOnly,
         syncDays: syncOptions.syncDays,
         activeStatuses: Array.from(syncOptions.statuses).join(', '),
@@ -383,6 +386,9 @@ export class IntegrationsService {
             lastSyncCount: imported,
             lastSyncSkipped: skipped,
             syncDays: syncOptions.syncDays,
+            syncLimit: syncOptions.limit ?? 'all',
+            syncPageSize: syncOptions.pageSize,
+            syncMaxPages: syncOptions.maxPages,
             activeOnly: syncOptions.activeOnly,
             activeStatuses: Array.from(syncOptions.statuses),
           },
@@ -401,6 +407,9 @@ export class IntegrationsService {
             startedAt: startedAt.toISOString(),
             finishedAt: new Date().toISOString(),
             syncDays: syncOptions.syncDays,
+            syncLimit: syncOptions.limit ?? 'all',
+            syncPageSize: syncOptions.pageSize,
+            syncMaxPages: syncOptions.maxPages,
             activeOnly: syncOptions.activeOnly,
             activeStatuses: Array.from(syncOptions.statuses),
           },
@@ -411,7 +420,7 @@ export class IntegrationsService {
         provider: IntegrationProvider.GLPI,
         accepted: true,
         status: 'synced',
-        message: `Sincronismo GLPI concluido: ${imported} chamados ativos/recentes importados ou atualizados.`,
+        message: `Sincronismo GLPI concluido: ${imported} chamados importados ou atualizados no historico.`,
         imported,
         skipped,
       };
@@ -461,28 +470,48 @@ export class IntegrationsService {
 
   private async fetchGlpiTickets(sessionToken: string, syncOptions: GlpiSyncOptions): Promise<GlpiTicketPayload[]> {
     const { apiBaseUrl, appToken } = this.getGlpiConfig();
-    const params = new URLSearchParams({
-      range: `0-${Math.max(syncOptions.overfetchLimit - 1, 0)}`,
-      sort: 'date_mod',
-      order: 'DESC',
-      expand_dropdowns: 'true',
-    });
-    const response = await fetch(`${apiBaseUrl}/Ticket?${params.toString()}`, {
-      method: 'GET',
-      headers: {
-        'App-Token': appToken,
-        'Session-Token': sessionToken,
-      },
-    });
+    const tickets: GlpiTicketPayload[] = [];
 
-    if (!response.ok) {
-      throw new Error(`Nao foi possivel buscar chamados GLPI. Status ${response.status}.`);
+    for (let page = 0; page < syncOptions.maxPages; page += 1) {
+      const start = page * syncOptions.pageSize;
+      const end = start + syncOptions.pageSize - 1;
+      const params = new URLSearchParams({
+        range: `${start}-${end}`,
+        sort: 'date_mod',
+        order: 'DESC',
+        expand_dropdowns: 'true',
+      });
+      const response = await fetch(`${apiBaseUrl}/Ticket?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'App-Token': appToken,
+          'Session-Token': sessionToken,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Nao foi possivel buscar chamados GLPI. Status ${response.status}.`);
+      }
+
+      const body = (await response.json()) as unknown;
+      const pageRows = Array.isArray(body) ? body.map((ticket) => asRecord(ticket) as GlpiTicketPayload) : [];
+
+      if (pageRows.length === 0) {
+        break;
+      }
+
+      tickets.push(...filterGlpiTicketsForSync(pageRows, syncOptions));
+
+      if (syncOptions.limit && tickets.length >= syncOptions.limit) {
+        return tickets.slice(0, syncOptions.limit);
+      }
+
+      if (pageRows.length < syncOptions.pageSize) {
+        break;
+      }
     }
 
-    const body = (await response.json()) as unknown;
-    const tickets = Array.isArray(body) ? body.map((ticket) => asRecord(ticket) as GlpiTicketPayload) : [];
-
-    return filterGlpiTicketsForSync(tickets, syncOptions).slice(0, syncOptions.limit);
+    return syncOptions.limit ? tickets.slice(0, syncOptions.limit) : tickets;
   }
 
   private createGlpiLookupContext(sessionToken: string): GlpiLookupContext {
@@ -558,17 +587,21 @@ export class IntegrationsService {
   }
 
   private getGlpiSyncOptions(): GlpiSyncOptions {
-    const limit = clamp(Number(this.configService.get<string>('GLPI_SYNC_LIMIT', '50')), 1, 200);
-    const syncDays = clamp(Number(this.configService.get<string>('GLPI_SYNC_DAYS', '90')), 0, 3650);
-    const activeOnly = this.configService.get<string>('GLPI_SYNC_ACTIVE_ONLY', 'true') !== 'false';
-    const statuses = parseNumberSet(this.configService.get<string>('GLPI_SYNC_STATUSES', '1,2,3,4'));
+    const rawLimit = Number(this.configService.get<string>('GLPI_SYNC_LIMIT', '0'));
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? clamp(rawLimit, 1, 100000) : null;
+    const pageSize = clamp(Number(this.configService.get<string>('GLPI_SYNC_PAGE_SIZE', '100')), 1, 200);
+    const maxPages = clamp(Number(this.configService.get<string>('GLPI_SYNC_MAX_PAGES', '1000')), 1, 10000);
+    const syncDays = clamp(Number(this.configService.get<string>('GLPI_SYNC_DAYS', '0')), 0, 3650);
+    const activeOnly = this.configService.get<string>('GLPI_SYNC_ACTIVE_ONLY', 'false') === 'true';
+    const statuses = parseNumberSet(this.configService.get<string>('GLPI_SYNC_STATUSES', ''));
 
     return {
       limit,
-      overfetchLimit: Math.min(limit * 4, 500),
+      pageSize,
+      maxPages,
       syncDays,
       activeOnly,
-      statuses: statuses.size > 0 ? statuses : new Set([1, 2, 3, 4]),
+      statuses: statuses.size > 0 ? statuses : new Set([1, 2, 3, 4, 7]),
     };
   }
 
@@ -1091,6 +1124,10 @@ function mapGlpiStatus(status?: number) {
     return TicketStatus.PENDING;
   }
 
+  if (status === 7) {
+    return TicketStatus.PENDING;
+  }
+
   return TicketStatus.OPEN;
 }
 
@@ -1109,6 +1146,10 @@ function readGlpiStatus(ticket: GlpiTicketPayload) {
 
   if (normalizedStatus.includes('novo')) {
     return 1;
+  }
+
+  if (normalizedStatus.includes('aprov')) {
+    return 7;
   }
 
   if (normalizedStatus.includes('atribu')) {
@@ -1142,6 +1183,7 @@ function glpiStatusLabel(status?: number) {
     4: 'Pendente',
     5: 'Solucionado',
     6: 'Fechado',
+    7: 'Aprovacao',
   };
 
   return status ? labels[status] ?? `Status ${status}` : 'Sem status';

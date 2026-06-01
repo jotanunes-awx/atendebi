@@ -11,7 +11,7 @@ import { SentimentBadge } from '@/components/sentiment-badge';
 import { StatusBadge } from '@/components/status-badge';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { Button } from '@/components/ui/button';
-import { ticketColumns, getTicketSearchValue, formatDateTime } from '@/components/ticket-columns';
+import { ticketColumns, getTicketSearchValue, formatDateTime, formatRatingLabel } from '@/components/ticket-columns';
 import { getConversationMessages, getTickets } from '@/lib/api-client';
 import type { DemoTicket } from '@/lib/demo-data';
 
@@ -169,7 +169,7 @@ export default function ConversasPage() {
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     <span className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-xs font-semibold text-warning">
-                      {selectedTicket.rating} estrelas
+                      {formatRatingLabel(selectedTicket.rating)}
                     </span>
                     <SentimentBadge sentiment={selectedTicket.sentiment} />
                     <RiskBadge risk={selectedTicket.risk} />

@@ -20,7 +20,7 @@ import { ConversationTimeline } from '@/components/conversation-timeline';
 import { RiskBadge } from '@/components/risk-badge';
 import { SentimentBadge } from '@/components/sentiment-badge';
 import { StatusBadge } from '@/components/status-badge';
-import { formatDateTime } from '@/components/ticket-columns';
+import { formatDateTime, formatRatingLabel, hasTicketRating } from '@/components/ticket-columns';
 import { getConversationMessages } from '@/lib/api-client';
 import type { DemoTicket } from '@/lib/demo-data';
 import { cn } from '@/lib/utils';
@@ -99,7 +99,7 @@ export function TicketDetailDrawer({ ticket, contextLabel, onClose }: TicketDeta
                 <SentimentBadge sentiment={ticket.sentiment} />
                 <RiskBadge risk={ticket.risk} />
                 <span className="rounded-md border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning">
-                  {ticket.rating}/5 estrelas
+                  {formatRatingLabel(ticket.rating)}
                 </span>
               </div>
             </header>
@@ -114,7 +114,7 @@ export function TicketDetailDrawer({ ticket, contextLabel, onClose }: TicketDeta
                   value={`${ticket.firstResponseMinutes.toFixed(1).replace('.', ',')} min`}
                   detail={`${ticket.waitMinutes} min de espera`}
                 />
-                <DetailMetric icon={Star} label="Qualidade" value={`${ticket.rating}/5`} detail={ticket.resolutionStatus} />
+                <DetailMetric icon={Star} label="Qualidade" value={formatRatingLabel(ticket.rating)} detail={ticket.resolutionStatus} />
               </section>
 
               <section className="mt-5 rounded-lg border border-border bg-secondary p-4">
@@ -246,7 +246,7 @@ function Evidence({ label, value }: { label: string; value: string }) {
 function buildInvestigation(ticket: DemoTicket): InvestigationPoint[] {
   const points: InvestigationPoint[] = [];
 
-  if (ticket.rating <= 2) {
+  if (hasTicketRating(ticket) && ticket.rating <= 2) {
     points.push({
       title: 'Nota baixa',
       description: `Cliente avaliou com ${ticket.rating} estrela(s). A qualidade deve ler a conversa antes de consolidar o indicador.`,
@@ -314,7 +314,7 @@ function buildInvestigation(ticket: DemoTicket): InvestigationPoint[] {
 }
 
 function buildRecommendedAction(ticket: DemoTicket) {
-  if (ticket.rating <= 2 || ticket.sentiment === 'negativo') {
+  if ((hasTicketRating(ticket) && ticket.rating <= 2) || ticket.sentiment === 'negativo') {
     return 'Abrir revisao de qualidade, registrar causa provavel, acionar responsavel da fila e acompanhar retorno ao cliente.';
   }
 

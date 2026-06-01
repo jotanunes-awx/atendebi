@@ -69,7 +69,7 @@ export default function QualidadePage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             label="Nota media"
-            value={averageRating.toFixed(1).replace('.', ',')}
+            value={ratedTickets.length > 0 || (quality?.totalRated ?? 0) > 0 ? averageRating.toFixed(1).replace('.', ',') : 'Sem nota'}
             detail={`${quality?.totalRated ?? ratedTickets.length} avaliacoes no periodo`}
             tone="warning"
             icon={Star}

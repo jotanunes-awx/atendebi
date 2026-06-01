@@ -231,13 +231,15 @@ GLPI_BASE_URL=https://glpi.suaempresa.com
 GLPI_APP_TOKEN=seu-app-token
 GLPI_USER_TOKEN=seu-user-token
 GLPI_SYNC_ENABLED=false
-GLPI_SYNC_LIMIT=50
-GLPI_SYNC_ACTIVE_ONLY=true
-GLPI_SYNC_STATUSES=1,2,3,4
-GLPI_SYNC_DAYS=90
+GLPI_SYNC_LIMIT=0
+GLPI_SYNC_PAGE_SIZE=100
+GLPI_SYNC_MAX_PAGES=1000
+GLPI_SYNC_ACTIVE_ONLY=false
+GLPI_SYNC_STATUSES=
+GLPI_SYNC_DAYS=0
 ```
 
-Por padrao o sincronismo prioriza chamados ativos do GLPI: novo, atribuido, planejado e pendente. Chamados antigos e fechados continuam historicos quando ja estiverem no banco, mas o dashboard abre em `Ativos agora` para nao poluir a leitura operacional. Se quiser trazer historico fechado tambem, altere `GLPI_SYNC_ACTIVE_ONLY=false` e ajuste `GLPI_SYNC_DAYS`.
+Por padrao o sincronismo percorre paginas da API do GLPI e tenta guardar todo o historico no banco do AtendeBI. `GLPI_SYNC_LIMIT=0` significa sem limite de quantidade; use um numero positivo apenas se quiser limitar um teste. O dashboard continua abrindo em `Ativos agora`, entao chamados antigos ficam disponiveis para busca/auditoria sem poluir a visao operacional. Se quiser sincronizar apenas chamados ativos, use `GLPI_SYNC_ACTIVE_ONLY=true` e informe `GLPI_SYNC_STATUSES=1,2,3,4,7`.
 
 Depois rode:
 

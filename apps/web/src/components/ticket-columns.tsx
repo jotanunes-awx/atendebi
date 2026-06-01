@@ -23,11 +23,20 @@ export function getTicketSearchValue(ticket: DemoTicket) {
     ticket.channel,
     ticket.group,
     ticket.status,
+    ticket.resolutionStatus,
     ticket.subject,
     ticket.sentiment,
     ticket.risk,
     ticket.tags.join(' '),
   ].join(' ');
+}
+
+export function hasTicketRating(ticket: Pick<DemoTicket, 'rating'>) {
+  return ticket.rating > 0;
+}
+
+export function formatRatingLabel(rating: number) {
+  return rating > 0 ? `${rating}/5` : 'Sem avaliacao';
 }
 
 export const ticketColumns: DataTableColumn<DemoTicket>[] = [
@@ -74,12 +83,17 @@ export const ticketColumns: DataTableColumn<DemoTicket>[] = [
   {
     key: 'status',
     header: 'Status',
-    accessor: (ticket) => <StatusBadge status={ticket.status} />,
+    accessor: (ticket) => (
+      <div>
+        <StatusBadge status={ticket.status} />
+        <p className="mt-1 text-xs text-muted-foreground">{ticket.resolutionStatus}</p>
+      </div>
+    ),
   },
   {
     key: 'rating',
     header: 'Nota',
-    accessor: (ticket) => <span className="font-semibold text-card-foreground">{ticket.rating}/5</span>,
+    accessor: (ticket) => <span className="font-semibold text-card-foreground">{formatRatingLabel(ticket.rating)}</span>,
   },
   {
     key: 'sentiment',

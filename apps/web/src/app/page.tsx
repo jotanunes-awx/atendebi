@@ -32,7 +32,7 @@ import { SentimentBadge } from '@/components/sentiment-badge';
 import { StatusBadge } from '@/components/status-badge';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { Button } from '@/components/ui/button';
-import { ticketColumns, getTicketSearchValue, formatDateTime } from '@/components/ticket-columns';
+import { ticketColumns, getTicketSearchValue, formatDateTime, formatRatingLabel, hasTicketRating } from '@/components/ticket-columns';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { getConversationMessages, getDashboardDrilldown, getDashboardOverview, getTickets } from '@/lib/api-client';
 import type { DemoTicket } from '@/lib/demo-data';
@@ -198,6 +198,7 @@ export default function Home() {
       ? 'API indisponivel'
       : 'Conectado a API';
   const maxQueueOpen = Math.max(...dashboard.queueAttentionData.map((queue) => queue.abertos), 1);
+  const hasQualityRatings = dashboard.qualitySummary.totalRated > 0;
 
   function openDrawer(title: string, rows: DemoTicket[], filters: DrawerState['filters'], description?: string) {
     setDrawer({
@@ -441,9 +442,9 @@ export default function Home() {
               <div>
                 <div className="flex items-baseline gap-2">
                   <span className="text-4xl font-semibold tracking-normal text-card-foreground">
-                    {String(dashboard.qualitySummary.averageRating).replace('.', ',')}
+                    {hasQualityRatings ? String(dashboard.qualitySummary.averageRating).replace('.', ',') : 'Sem nota'}
                   </span>
-                  <span className="text-sm font-medium text-muted-foreground">de 5</span>
+                  {hasQualityRatings ? <span className="text-sm font-medium text-muted-foreground">de 5</span> : null}
                 </div>
                 <div className="mt-3">
                   <RatingStars rating={dashboard.qualitySummary.averageRating} />
@@ -546,7 +547,7 @@ export default function Home() {
                     <p className="text-sm text-muted-foreground">{agent.queue}</p>
                   </div>
                   <span className="rounded-md bg-success/10 px-2 py-1 text-sm font-semibold text-success">
-                    {agent.rating.toString().replace('.', ',')}
+                    {agent.rating > 0 ? agent.rating.toString().replace('.', ',') : 'Sem nota'}
                   </span>
                 </div>
                 <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
@@ -783,7 +784,7 @@ export default function Home() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <span className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-sm font-medium text-warning">
-                        {selectedTicket.rating} estrelas
+                        {formatRatingLabel(selectedTicket.rating)}
                       </span>
                       <SentimentBadge sentiment={selectedTicket.sentiment} />
                       <RiskBadge risk={selectedTicket.risk} />
@@ -868,7 +869,7 @@ function getRowsForHour(hourLabel: string, tickets: DemoTicket[]) {
 
 function getQualityConcernRows(tickets: DemoTicket[]) {
   return tickets.filter(
-    (ticket) => ticket.rating <= 2 || ticket.unresolved || ticket.sentiment === 'negativo' || ticket.risk === 'alto',
+    (ticket) => (hasTicketRating(ticket) && ticket.rating <= 2) || ticket.unresolved || ticket.sentiment === 'negativo' || ticket.risk === 'alto',
   );
 }
 
@@ -900,7 +901,7 @@ function getRowsForRisk(label: string, tickets: DemoTicket[]) {
 
 function getRowsForSuggestion(index: number, tickets: DemoTicket[]) {
   if (index === 0) {
-    return tickets.filter((ticket) => ticket.risk === 'alto' || ticket.unresolved || ticket.rating <= 2);
+    return tickets.filter((ticket) => ticket.risk === 'alto' || ticket.unresolved || (hasTicketRating(ticket) && ticket.rating <= 2));
   }
 
   if (index === 1) {

@@ -42,7 +42,7 @@ const queueColumns: DataTableColumn<QueueMetric>[] = [
   {
     key: 'rating',
     header: 'Nota',
-    accessor: (queue) => queue.averageRating.toFixed(1).replace('.', ','),
+    accessor: (queue) => formatAverageRating(queue.averageRating),
   },
   {
     key: 'risk',
@@ -121,7 +121,7 @@ export default function FilasPage() {
                 </span>
                 <span className="flex items-center gap-2">
                   <Star className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
-                  {queue.averageRating.toFixed(1).replace('.', ',')} nota media
+                  {formatAverageRating(queue.averageRating)}
                 </span>
                 <span className="flex items-center gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
@@ -174,6 +174,10 @@ export default function FilasPage() {
       />
     </DashboardShell>
   );
+}
+
+function formatAverageRating(value: number) {
+  return value > 0 ? `${value.toFixed(1).replace('.', ',')} nota media` : 'Sem avaliacoes';
 }
 
 function mapQueue(queue: QueueItem): QueueMetric {

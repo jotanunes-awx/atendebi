@@ -58,9 +58,9 @@ export class DashboardService {
         },
         {
           label: 'Nota media',
-          value: formatNumber(averageRating),
-          detail: 'Baseada nas avaliacoes',
-          tone: averageRating < 3.5 ? 'warning' : 'good',
+          value: ratedTickets.length > 0 ? formatNumber(averageRating) : 'Sem nota',
+          detail: ratedTickets.length > 0 ? 'Baseada nas avaliacoes' : 'Nenhuma avaliacao finalizada',
+          tone: ratedTickets.length === 0 ? 'neutral' : averageRating < 3.5 ? 'warning' : 'good',
           icon: 'star',
         },
         {
