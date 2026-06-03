@@ -265,6 +265,8 @@ BLIP_SYNC_ENABLED=true
 BLIP_BOT_KEY=cole-a-key-somente-no-servidor
 BLIP_CONTRACT_ID=jotanunes
 BLIP_HTTP_BASE_URL=https://jotanunes.http.msging.net
+BLIP_SYNC_INCLUDE_ATTENDANTS=true
+BLIP_SYNC_ATTENDANT_LIMIT=1000
 BLIP_SYNC_CONTACT_LIMIT=200
 BLIP_SYNC_THREAD_MESSAGES_PER_CONTACT=20
 BLIP_SYNC_INCLUDE_LOGGED_MESSAGES=false
@@ -288,7 +290,7 @@ curl -X POST http://localhost:3333/integrations/BLIP/sync \
   -H "x-roles: ATENDEBI_ADMIN"
 ```
 
-O retorno informa quantos contatos e mensagens foram importados. Se algum endpoint de historico nao estiver liberado no contrato, o sync termina com aviso e mantem o que conseguiu importar. Para historico muito antigo, podemos criar uma etapa separada de importacao dos logs antigos do servidor legado.
+O retorno informa quantos atendentes, contatos e mensagens foram importados. Leads/clientes entram como `contacts`; corretores, atendentes e funcionarios do atendimento entram como `agents` quando o endpoint do BLiP Desk estiver disponivel para a key. Se algum endpoint de historico ou atendentes nao estiver liberado no contrato, o sync termina com aviso e mantem o que conseguiu importar. Para historico muito antigo, podemos criar uma etapa separada de importacao dos logs antigos do servidor legado.
 
 ## Integracoes GLPI e Teams/PABX
 

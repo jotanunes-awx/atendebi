@@ -47,16 +47,28 @@ type BlipSyncOptions = {
   contactLimit: number | null;
   contactPageSize: number;
   maxContactPages: number;
+  attendantLimit: number | null;
+  attendantPageSize: number;
+  maxAttendantPages: number;
   threadMessagesPerContact: number;
   loggedMessagesLimit: number | null;
   loggedMessagesPageSize: number;
   maxLoggedMessagePages: number;
+  includeAttendants: boolean;
   includeContacts: boolean;
   includeThreads: boolean;
   includeLoggedMessages: boolean;
 };
 
 type BlipContactPayload = Record<string, unknown>;
+
+type BlipAttendantPayload = Record<string, unknown>;
+
+type BlipAttendantLookup = {
+  identity: string;
+  name: string;
+  email?: string;
+};
 
 type BlipThreadMessagePayload = Record<string, unknown>;
 
@@ -496,10 +508,22 @@ export class IntegrationsService {
     const warnings: string[] = [];
     let importedContacts = 0;
     let importedMessages = 0;
+    let importedAttendants = 0;
     let skipped = 0;
     let contacts: BlipContactPayload[] = [];
+    let attendantsByIdentity = new Map<string, BlipAttendantLookup>();
 
     try {
+      if (syncOptions.includeAttendants) {
+        try {
+          const attendants = await this.fetchBlipAttendants(syncOptions);
+          attendantsByIdentity = await this.upsertBlipAttendants(tenantId, attendants);
+          importedAttendants = attendantsByIdentity.size;
+        } catch (error) {
+          warnings.push(`Atendentes BLiP Desk: ${error instanceof Error ? error.message : 'endpoint nao disponivel'}`);
+        }
+      }
+
       if (syncOptions.includeContacts) {
         contacts = await this.fetchBlipContacts(syncOptions);
 
@@ -530,7 +554,7 @@ export class IntegrationsService {
               }
 
               for (const messagePayload of messages) {
-                const imported = await this.upsertBlipMessage(tenantId, messagePayload, contactPayload, 'thread');
+                const imported = await this.upsertBlipMessage(tenantId, messagePayload, contactPayload, 'thread', attendantsByIdentity);
                 importedMessages += imported ? 1 : 0;
                 skipped += imported ? 0 : 1;
               }
@@ -557,7 +581,7 @@ export class IntegrationsService {
           const messages = await this.fetchBlipLoggedMessages(syncOptions);
 
           for (const messagePayload of messages) {
-            const imported = await this.upsertBlipMessage(tenantId, messagePayload, undefined, 'logged-message');
+            const imported = await this.upsertBlipMessage(tenantId, messagePayload, undefined, 'logged-message', attendantsByIdentity);
             importedMessages += imported ? 1 : 0;
             skipped += imported ? 0 : 1;
           }
@@ -577,12 +601,14 @@ export class IntegrationsService {
             syncStrategy: 'commands-api',
             syncEnabled: true,
             lastSyncAt: new Date().toISOString(),
+            lastSyncAttendants: importedAttendants,
             lastSyncContacts: importedContacts,
             lastSyncMessages: importedMessages,
             lastSyncSkipped: skipped,
             warnings: warnings.slice(0, 10),
             contactLimit: syncOptions.contactLimit ?? 'all',
             contactPageSize: syncOptions.contactPageSize,
+            attendantLimit: syncOptions.attendantLimit ?? 'all',
             threadMessagesPerContact: syncOptions.threadMessagesPerContact,
             includeLoggedMessages: syncOptions.includeLoggedMessages,
             sourceRetentionDays: Number(this.configService.get<string>('BLIP_SOURCE_RETENTION_DAYS', '90')),
@@ -600,11 +626,13 @@ export class IntegrationsService {
           metadata: {
             importedContacts,
             importedMessages,
+            importedAttendants,
             skipped,
             warnings: warnings.slice(0, 20),
             startedAt: startedAt.toISOString(),
             finishedAt: new Date().toISOString(),
             contactLimit: syncOptions.contactLimit ?? 'all',
+            attendantLimit: syncOptions.attendantLimit ?? 'all',
             threadMessagesPerContact: syncOptions.threadMessagesPerContact,
           },
         },
@@ -615,10 +643,11 @@ export class IntegrationsService {
         accepted: true,
         status: warnings.length ? 'synced_with_warnings' : 'synced',
         message: warnings.length
-          ? `Sincronismo BLiP concluido com avisos: ${importedContacts} contatos e ${importedMessages} mensagens importados.`
-          : `Sincronismo BLiP concluido: ${importedContacts} contatos e ${importedMessages} mensagens importados ou atualizados.`,
-        imported: importedContacts + importedMessages,
+          ? `Sincronismo BLiP concluido com avisos: ${importedAttendants} atendentes, ${importedContacts} contatos e ${importedMessages} mensagens importados.`
+          : `Sincronismo BLiP concluido: ${importedAttendants} atendentes, ${importedContacts} contatos e ${importedMessages} mensagens importados ou atualizados.`,
+        imported: importedAttendants + importedContacts + importedMessages,
         skipped,
+        attendants: importedAttendants,
         contacts: importedContacts,
         messages: importedMessages,
         warnings: warnings.slice(0, 5),
@@ -629,8 +658,9 @@ export class IntegrationsService {
         accepted: false,
         status: 'sync_failed',
         message: error instanceof Error ? error.message : 'Nao foi possivel sincronizar dados do BLiP.',
-        imported: importedContacts + importedMessages,
+        imported: importedAttendants + importedContacts + importedMessages,
         skipped,
+        attendants: importedAttendants,
         contacts: importedContacts,
         messages: importedMessages,
         warnings: warnings.slice(0, 5),
@@ -666,6 +696,73 @@ export class IntegrationsService {
     }
 
     return syncOptions.contactLimit ? contacts.slice(0, syncOptions.contactLimit) : contacts;
+  }
+
+  private async fetchBlipAttendants(syncOptions: BlipSyncOptions): Promise<BlipAttendantPayload[]> {
+    const attendants: BlipAttendantPayload[] = [];
+
+    for (let page = 0; page < syncOptions.maxAttendantPages; page += 1) {
+      const skip = page * syncOptions.attendantPageSize;
+      const command = await this.sendBlipCommand(
+        'postmaster@desk.msging.net',
+        'get',
+        `/attendants?$skip=${skip}&$take=${syncOptions.attendantPageSize}`,
+      );
+      const pageRows = extractBlipItems(command) as BlipAttendantPayload[];
+
+      if (pageRows.length === 0) {
+        break;
+      }
+
+      attendants.push(...pageRows);
+
+      if (syncOptions.attendantLimit && attendants.length >= syncOptions.attendantLimit) {
+        return attendants.slice(0, syncOptions.attendantLimit);
+      }
+
+      if (pageRows.length < syncOptions.attendantPageSize) {
+        break;
+      }
+    }
+
+    return syncOptions.attendantLimit ? attendants.slice(0, syncOptions.attendantLimit) : attendants;
+  }
+
+  private async upsertBlipAttendants(tenantId: string, attendants: BlipAttendantPayload[]) {
+    const lookup = new Map<string, BlipAttendantLookup>();
+
+    for (const attendant of attendants) {
+      const parsed = extractBlipAttendant(attendant);
+
+      if (!parsed) {
+        continue;
+      }
+
+      await this.prisma.agent.upsert({
+        where: {
+          tenantId_externalId: {
+            tenantId,
+            externalId: stableExternalId('blip-agent', parsed.identity),
+          },
+        },
+        update: {
+          name: parsed.name,
+          email: parsed.email,
+          isActive: true,
+        },
+        create: {
+          tenantId,
+          externalId: stableExternalId('blip-agent', parsed.identity),
+          name: parsed.name,
+          email: parsed.email,
+          isActive: true,
+        },
+      });
+
+      lookup.set(normalizeBlipIdentity(parsed.identity), parsed);
+    }
+
+    return lookup;
   }
 
   private async fetchBlipThreadMessages(
@@ -808,6 +905,7 @@ export class IntegrationsService {
     messagePayload: BlipThreadMessagePayload,
     contactPayload: BlipContactPayload | undefined,
     source: 'thread' | 'logged-message',
+    attendantsByIdentity: Map<string, BlipAttendantLookup>,
   ) {
     const message = unwrapBlipMessage(messagePayload);
     const from = readFirstString(message, ['from', 'message.from', 'resource.from']);
@@ -843,12 +941,8 @@ export class IntegrationsService {
       readFirstString(message, ['queue.name', 'resource.queue.name', 'metadata.queue', 'extras.queue']) ?? `BLiP - ${channel}`,
       160,
     );
-    const agentName =
-      truncate(
-        readFirstString(message, ['agent.name', 'attendant.name', 'operator.name', 'resource.agent.name', 'metadata.agent']) ??
-          (direction === MessageDirection.OUTBOUND ? 'BLiP Bot / Atendente' : ''),
-        160,
-      ) || undefined;
+    const agentInfo = extractBlipMessageAgent(message, attendantsByIdentity);
+    const agentName = agentInfo?.name ? truncate(agentInfo.name, 160) : undefined;
     const contactName =
       truncate(
         readFirstString(message, ['contact.name', 'customer.name', 'resource.customer.name']) ??
@@ -904,14 +998,15 @@ export class IntegrationsService {
           where: {
             tenantId_externalId: {
               tenantId,
-              externalId: stableExternalId('blip-agent', agentName),
+              externalId: stableExternalId('blip-agent', agentInfo?.identity ?? agentName),
             },
           },
-          update: { name: agentName, isActive: true },
+          update: { name: agentName, email: agentInfo?.email, isActive: true },
           create: {
             tenantId,
-            externalId: stableExternalId('blip-agent', agentName),
+            externalId: stableExternalId('blip-agent', agentInfo?.identity ?? agentName),
             name: agentName,
+            email: agentInfo?.email,
             isActive: true,
           },
         })
@@ -934,7 +1029,7 @@ export class IntegrationsService {
       update: {
         contactId: contact.id,
         queueId: queue.id,
-        agentId: agent?.id ?? undefined,
+        agentId: agent?.id ?? null,
         status,
         channel,
         subject,
@@ -993,6 +1088,13 @@ export class IntegrationsService {
         content,
         contentType: truncate(readFirstString(message, ['content.type', 'type', 'message.type']) ?? 'text/plain', 80),
         sentAt,
+        metadata: {
+          source: 'BLIP',
+          provider: 'BLIP',
+          syncSource: source,
+          senderRole: direction === MessageDirection.INBOUND ? 'Cliente' : agentName ? 'Atendente' : direction === MessageDirection.OUTBOUND ? 'Bot' : 'Sistema',
+          agentIdentity: agentInfo?.identity,
+        },
       },
       create: {
         tenantId,
@@ -1010,7 +1112,8 @@ export class IntegrationsService {
           source: 'BLIP',
           provider: 'BLIP',
           syncSource: source,
-          senderRole: direction === MessageDirection.INBOUND ? 'Cliente' : direction === MessageDirection.OUTBOUND ? 'Atendente/Bot' : 'Sistema',
+          senderRole: direction === MessageDirection.INBOUND ? 'Cliente' : agentName ? 'Atendente' : direction === MessageDirection.OUTBOUND ? 'Bot' : 'Sistema',
+          agentIdentity: agentInfo?.identity,
         },
       },
     });
@@ -1074,16 +1177,21 @@ export class IntegrationsService {
 
   private getBlipSyncOptions(): BlipSyncOptions {
     const rawContactLimit = Number(this.configService.get<string>('BLIP_SYNC_CONTACT_LIMIT', '200'));
+    const rawAttendantLimit = Number(this.configService.get<string>('BLIP_SYNC_ATTENDANT_LIMIT', '1000'));
     const rawLoggedLimit = Number(this.configService.get<string>('BLIP_SYNC_LOGGED_MESSAGE_LIMIT', '0'));
 
     return {
       contactLimit: Number.isFinite(rawContactLimit) && rawContactLimit > 0 ? clamp(rawContactLimit, 1, 100000) : null,
       contactPageSize: clamp(Number(this.configService.get<string>('BLIP_SYNC_CONTACT_PAGE_SIZE', '100')), 1, 100),
       maxContactPages: clamp(Number(this.configService.get<string>('BLIP_SYNC_MAX_CONTACT_PAGES', '20')), 1, 1000),
+      attendantLimit: Number.isFinite(rawAttendantLimit) && rawAttendantLimit > 0 ? clamp(rawAttendantLimit, 1, 100000) : null,
+      attendantPageSize: clamp(Number(this.configService.get<string>('BLIP_SYNC_ATTENDANT_PAGE_SIZE', '100')), 1, 100),
+      maxAttendantPages: clamp(Number(this.configService.get<string>('BLIP_SYNC_MAX_ATTENDANT_PAGES', '20')), 1, 1000),
       threadMessagesPerContact: clamp(Number(this.configService.get<string>('BLIP_SYNC_THREAD_MESSAGES_PER_CONTACT', '20')), 1, 100),
       loggedMessagesLimit: Number.isFinite(rawLoggedLimit) && rawLoggedLimit > 0 ? clamp(rawLoggedLimit, 1, 100000) : null,
       loggedMessagesPageSize: clamp(Number(this.configService.get<string>('BLIP_SYNC_LOGGED_MESSAGE_PAGE_SIZE', '100')), 1, 100),
       maxLoggedMessagePages: clamp(Number(this.configService.get<string>('BLIP_SYNC_MAX_LOGGED_MESSAGE_PAGES', '3')), 1, 1000),
+      includeAttendants: this.configService.get<string>('BLIP_SYNC_INCLUDE_ATTENDANTS', 'true') !== 'false',
       includeContacts: this.configService.get<string>('BLIP_SYNC_INCLUDE_CONTACTS', 'true') !== 'false',
       includeThreads: this.configService.get<string>('BLIP_SYNC_INCLUDE_THREADS', 'true') !== 'false',
       includeLoggedMessages: this.configService.get<string>('BLIP_SYNC_INCLUDE_LOGGED_MESSAGES', 'false') === 'true',
@@ -2464,6 +2572,112 @@ function extractBlipContent(payload: Record<string, unknown>) {
   return undefined;
 }
 
+function extractBlipAttendant(payload: BlipAttendantPayload): BlipAttendantLookup | null {
+  const identity = readFirstStringLoose(payload, [
+    'identity',
+    'id',
+    'email',
+    'userIdentity',
+    'accountIdentity',
+    'resource.identity',
+    'resource.id',
+    'resource.email',
+  ]);
+
+  if (!identity) {
+    return null;
+  }
+
+  const name =
+    readFirstStringLoose(payload, [
+      'fullName',
+      'name',
+      'displayName',
+      'email',
+      'resource.fullName',
+      'resource.name',
+      'resource.displayName',
+      'resource.email',
+    ]) ?? humanizeBlipIdentity(identity);
+  const email = readFirstStringLoose(payload, ['email', 'resource.email']);
+
+  return {
+    identity,
+    name: truncate(name, 160),
+    email: email ? truncate(email, 180) : undefined,
+  };
+}
+
+function extractBlipMessageAgent(
+  payload: Record<string, unknown>,
+  attendantsByIdentity: Map<string, BlipAttendantLookup>,
+): BlipAttendantLookup | null {
+  const directName = readFirstStringLoose(payload, [
+    'agent.name',
+    'attendant.name',
+    'operator.name',
+    'owner.name',
+    'resource.agent.name',
+    'resource.attendant.name',
+    'resource.operator.name',
+    'metadata.agent',
+    'metadata.attendant',
+    'metadata.operator',
+    'metadata.owner',
+    'metadata.agentName',
+    'metadata.attendantName',
+    'metadata.operatorName',
+    '#desk.agentName',
+    '#desk.attendantName',
+    'metadata.#desk.agentName',
+    'metadata.#desk.attendantName',
+  ]);
+  const identity = readFirstStringLoose(payload, [
+    'agent.identity',
+    'attendant.identity',
+    'operator.identity',
+    'owner.identity',
+    'agentIdentity',
+    'attendantIdentity',
+    'operatorIdentity',
+    'ownerIdentity',
+    'resource.agentIdentity',
+    'resource.attendantIdentity',
+    'resource.ownerIdentity',
+    'metadata.agentIdentity',
+    'metadata.attendantIdentity',
+    'metadata.ownerIdentity',
+    '#desk.agentIdentity',
+    '#desk.attendantIdentity',
+    'metadata.#desk.agentIdentity',
+    'metadata.#desk.attendantIdentity',
+  ]);
+
+  if (identity) {
+    const normalized = normalizeBlipIdentity(identity);
+    const found = attendantsByIdentity.get(normalized);
+
+    if (found) {
+      return found;
+    }
+
+    return {
+      identity,
+      name: truncate(directName ?? humanizeBlipIdentity(identity), 160),
+      email: extractEmailFromBlipIdentity(identity),
+    };
+  }
+
+  if (directName) {
+    return {
+      identity: directName,
+      name: truncate(directName, 160),
+    };
+  }
+
+  return null;
+}
+
 function inferBlipSenderName(direction: MessageDirection, contactName?: string | null, agentName?: string) {
   if (direction === MessageDirection.INBOUND) {
     return contactName ?? 'Cliente BLiP';
@@ -2474,6 +2688,35 @@ function inferBlipSenderName(direction: MessageDirection, contactName?: string |
   }
 
   return 'BLiP';
+}
+
+function normalizeBlipIdentity(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function humanizeBlipIdentity(identity: string) {
+  const email = extractEmailFromBlipIdentity(identity);
+
+  if (email) {
+    return email.split('@')[0].replace(/[._-]+/g, ' ');
+  }
+
+  return identity.replace(/@.*$/, '').replace(/[._-]+/g, ' ');
+}
+
+function extractEmailFromBlipIdentity(identity: string) {
+  const decoded = safeDecodeURIComponent(identity);
+  const match = decoded.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+
+  return match?.[0];
+}
+
+function safeDecodeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function buildBlipTicketMetadata({
@@ -2530,6 +2773,32 @@ function readFirstString(payload: Record<string, unknown>, paths: string[]) {
 
     if (typeof value === 'number' && Number.isFinite(value)) {
       return String(value);
+    }
+  }
+
+  return undefined;
+}
+
+function readFirstStringLoose(payload: Record<string, unknown>, paths: string[]) {
+  for (const path of paths) {
+    const direct = payload[path];
+
+    if (typeof direct === 'string' && direct.trim().length > 0) {
+      return direct.trim();
+    }
+
+    if (typeof direct === 'number' && Number.isFinite(direct)) {
+      return String(direct);
+    }
+
+    const nested = readPathValue(payload, path);
+
+    if (typeof nested === 'string' && nested.trim().length > 0) {
+      return nested.trim();
+    }
+
+    if (typeof nested === 'number' && Number.isFinite(nested)) {
+      return String(nested);
     }
   }
 

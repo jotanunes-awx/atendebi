@@ -252,6 +252,7 @@ export type IntegrationSyncResult = {
   rawEventId?: string;
   imported?: number;
   skipped?: number;
+  attendants?: number;
   contacts?: number;
   messages?: number;
   warnings?: string[];
