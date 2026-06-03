@@ -198,9 +198,10 @@ export function IntegrationTab({
             title="BLiP"
             icon={PlugZap}
             items={[
-              'Pedir acesso ao BLiP no trabalho.',
+              'Cadastrar BLIP_BOT_KEY somente no .env da API.',
+              'Definir BLIP_HTTP_BASE_URL ou BLIP_CONTRACT_ID.',
               'Cadastrar a Webhook URL exibida nesta tela.',
-              'Definir BLIP_WEBHOOK_SECRET quando o ambiente exigir secret.',
+              'Usar Testar e Sincronizar para validar contatos e conversas.',
             ]}
           />
           <SetupChecklist
@@ -247,7 +248,6 @@ function IntegrationProviderCard({
   onSyncIntegration: (provider: IntegrationProvider) => void | Promise<void>;
 }) {
   const Icon = providerIcon(integration.provider);
-  const canSync = integration.provider !== 'BLIP';
 
   return (
     <article className="flex min-h-[430px] flex-col rounded-lg border border-border bg-secondary p-4">
@@ -326,12 +326,10 @@ function IntegrationProviderCard({
           <TestTube2 className="h-4 w-4" aria-hidden="true" />
           {testing ? 'Testando' : 'Testar'}
         </Button>
-        {canSync ? (
-          <Button variant="outline" size="sm" type="button" onClick={() => onSyncIntegration(integration.provider)} disabled={syncing}>
-            <RefreshCw className="h-4 w-4" aria-hidden="true" />
-            {syncing ? 'Sincronizando' : integration.provider === 'GLPI' ? 'Sincronizar' : 'Preparar sync'}
-          </Button>
-        ) : null}
+        <Button variant="outline" size="sm" type="button" onClick={() => onSyncIntegration(integration.provider)} disabled={syncing}>
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          {syncing ? 'Sincronizando' : integration.provider === 'TEAMS_PHONE' ? 'Preparar sync' : 'Sincronizar'}
+        </Button>
       </div>
     </article>
   );
@@ -354,6 +352,16 @@ function IntegrationResultBox({ result }: { result: IntegrationTestResult | Inte
     <div className={`mt-4 rounded-md border p-3 ${ok ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}`}>
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{'checkedAt' in result ? 'Resultado do teste' : 'Resultado do sync'}</p>
       <p className="mt-2 text-sm leading-6 text-card-foreground">{result.message}</p>
+      {'contacts' in result || 'messages' in result ? (
+        <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-card-foreground">
+          {'contacts' in result && typeof result.contacts === 'number' ? <span>{result.contacts} contatos</span> : null}
+          {'messages' in result && typeof result.messages === 'number' ? <span>{result.messages} mensagens</span> : null}
+          {'skipped' in result && typeof result.skipped === 'number' ? <span>{result.skipped} ignorados</span> : null}
+        </div>
+      ) : null}
+      {'warnings' in result && Array.isArray(result.warnings) && result.warnings.length > 0 ? (
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">{result.warnings.slice(0, 2).join(' | ')}</p>
+      ) : null}
     </div>
   );
 }

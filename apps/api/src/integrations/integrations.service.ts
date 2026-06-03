@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IntegrationProvider, MessageDirection, Prisma, RawEventStatus, TicketStatus } from '@prisma/client';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
 
@@ -42,6 +42,23 @@ type TeamsCallBatch = {
   source: 'PSTN' | 'DIRECT_ROUTING';
   rows: Record<string, unknown>[];
 };
+
+type BlipSyncOptions = {
+  contactLimit: number | null;
+  contactPageSize: number;
+  maxContactPages: number;
+  threadMessagesPerContact: number;
+  loggedMessagesLimit: number | null;
+  loggedMessagesPageSize: number;
+  maxLoggedMessagePages: number;
+  includeContacts: boolean;
+  includeThreads: boolean;
+  includeLoggedMessages: boolean;
+};
+
+type BlipContactPayload = Record<string, unknown>;
+
+type BlipThreadMessagePayload = Record<string, unknown>;
 
 @Injectable()
 export class IntegrationsService {
@@ -112,6 +129,10 @@ export class IntegrationsService {
       return this.testGlpiConnection(provider);
     }
 
+    if (provider === IntegrationProvider.BLIP && ok) {
+      return this.testBlipConnection(provider);
+    }
+
     if (provider === IntegrationProvider.TEAMS_PHONE && ok) {
       return this.testTeamsConnection(provider);
     }
@@ -128,10 +149,6 @@ export class IntegrationsService {
 
   async sync(providerParam: string, tenantHeader?: string) {
     const provider = parseProvider(providerParam);
-
-    if (provider === IntegrationProvider.BLIP) {
-      throw new BadRequestException('BLiP sync is webhook-driven. Use POST /webhooks/blip/:tenantKey.');
-    }
 
     const tenantId = await this.tenantContext.resolveTenantId(tenantHeader);
 
@@ -152,6 +169,10 @@ export class IntegrationsService {
 
     if (provider === IntegrationProvider.GLPI) {
       return this.syncGlpiTickets(tenantId);
+    }
+
+    if (provider === IntegrationProvider.BLIP) {
+      return this.syncBlipHistory(tenantId);
     }
 
     if (provider === IntegrationProvider.TEAMS_PHONE) {
@@ -269,7 +290,33 @@ export class IntegrationsService {
 
   private getMissingSettings(provider: SupportedProvider, settings: Record<string, unknown>): string[] {
     if (provider === IntegrationProvider.BLIP) {
-      const missing = settings.webhookSecretRequired && !this.configService.get<string>('BLIP_WEBHOOK_SECRET') ? ['BLIP_WEBHOOK_SECRET'] : [];
+      const missing =
+        settings.webhookSecretRequired && !this.configService.get<string>('BLIP_WEBHOOK_SECRET') ? ['BLIP_WEBHOOK_SECRET'] : [];
+      const syncEnabled =
+        this.configService.get<string>('BLIP_ENABLED', 'false') === 'true' ||
+        this.configService.get<string>('BLIP_SYNC_ENABLED', 'false') === 'true';
+
+      if (syncEnabled) {
+        const key = firstConfiguredValue(
+          this.configService.get<string>('BLIP_BOT_KEY'),
+          this.configService.get<string>('BLIP_ACCESS_KEY'),
+          this.configService.get<string>('BLIP_AUTH_KEY'),
+        );
+        const httpBaseUrl = firstConfiguredValue(
+          this.configService.get<string>('BLIP_HTTP_BASE_URL'),
+          this.configService.get<string>('BLIP_API_BASE_URL'),
+        );
+        const contractId = firstConfiguredValue(this.configService.get<string>('BLIP_CONTRACT_ID'));
+
+        if (!key) {
+          missing.push('BLIP_BOT_KEY');
+        }
+
+        if (!httpBaseUrl && !contractId) {
+          missing.push('BLIP_HTTP_BASE_URL ou BLIP_CONTRACT_ID');
+        }
+      }
+
       return missing;
     }
 
@@ -300,8 +347,25 @@ export class IntegrationsService {
 
   private buildSettingsPreview(provider: SupportedProvider, settings: Record<string, unknown>) {
     if (provider === IntegrationProvider.BLIP) {
+      const syncOptions = this.getBlipSyncOptions();
+
       return {
-        mode: readString(settings, 'mode') || 'webhook',
+        mode:
+          this.configService.get<string>('BLIP_SYNC_ENABLED', 'false') === 'true' ||
+          this.configService.get<string>('BLIP_ENABLED', 'false') === 'true'
+            ? 'webhook + api backfill'
+            : readString(settings, 'mode') || 'webhook',
+        apiBaseUrl: maskUrl(this.buildBlipCommandsUrl().replace(/\/commands$/, '')),
+        authMethod: firstConfiguredValue(
+          this.configService.get<string>('BLIP_BOT_KEY'),
+          this.configService.get<string>('BLIP_ACCESS_KEY'),
+          this.configService.get<string>('BLIP_AUTH_KEY'),
+        )
+          ? 'Authorization Key'
+          : 'Nao configurado',
+        syncEnabled: this.configService.get<string>('BLIP_SYNC_ENABLED', 'false') === 'true',
+        contactLimit: syncOptions.contactLimit ?? 'todos',
+        threadMessagesPerContact: syncOptions.threadMessagesPerContact,
         sourceRetentionDays: readNumber(settings, 'sourceRetentionDays') ?? 90,
         atendebiRetentionDays: readNumber(settings, 'atendebiRetentionDays') ?? Number(this.configService.get<string>('ATENDEBI_RETENTION_DAYS', '730')),
       };
@@ -349,6 +413,629 @@ export class IntegrationsService {
       `http://localhost:${this.configService.get<string>('PORT') ?? this.configService.get<string>('API_PORT') ?? '3333'}`;
 
     return `${baseUrl.replace(/\/$/, '')}/webhooks/blip/${tenantKey}`;
+  }
+
+  private buildBlipCommandsUrl() {
+    const configuredBaseUrl = firstConfiguredValue(
+      this.configService.get<string>('BLIP_HTTP_BASE_URL'),
+      this.configService.get<string>('BLIP_API_BASE_URL'),
+    );
+    const contractId = firstConfiguredValue(this.configService.get<string>('BLIP_CONTRACT_ID'));
+    const baseUrl = configuredBaseUrl
+      ? normalizeBlipBaseUrl(configuredBaseUrl)
+      : contractId
+        ? `https://${contractId}.http.msging.net`
+        : 'https://SEU_CONTRATO.http.msging.net';
+
+    return `${baseUrl.replace(/\/commands$/, '')}/commands`;
+  }
+
+  private async testBlipConnection(provider: SupportedProvider) {
+    const checkedAt = new Date().toISOString();
+    const hasApiKey = firstConfiguredValue(
+      this.configService.get<string>('BLIP_BOT_KEY'),
+      this.configService.get<string>('BLIP_ACCESS_KEY'),
+      this.configService.get<string>('BLIP_AUTH_KEY'),
+    );
+
+    if (!hasApiKey) {
+      return {
+        provider,
+        checkedAt,
+        ok: true,
+        status: 'webhook_ready',
+        message: 'Webhook BLiP pronto. Para backfill por API, configure BLIP_BOT_KEY e BLIP_HTTP_BASE_URL ou BLIP_CONTRACT_ID.',
+        details: [
+          { item: 'Webhook URL gerada para o tenant', status: 'ok' },
+          { item: 'Chave BLiP ainda nao configurada no backend', status: 'planned' },
+        ],
+      };
+    }
+
+    try {
+      const command = await this.sendBlipCommand('postmaster@crm.msging.net', 'get', '/contacts?$skip=0&$take=1');
+      const contacts = extractBlipItems(command);
+
+      return {
+        provider,
+        checkedAt,
+        ok: true,
+        status: 'ready',
+        message: 'Conexao com BLiP validada. O proximo passo e executar o sincronismo de contatos e conversas recentes.',
+        details: [
+          { item: 'BLIP_BOT_KEY configurada apenas no backend', status: 'ok' },
+          { item: 'Commands API respondeu /contacts', status: 'ok' },
+          { item: `${contacts.length} contato(s) retornado(s) no teste`, status: 'ok' },
+        ],
+      };
+    } catch (error) {
+      return {
+        provider,
+        checkedAt,
+        ok: false,
+        status: 'connection_failed',
+        message: error instanceof Error ? error.message : 'Nao foi possivel validar a conexao com o BLiP.',
+        details: [
+          { item: 'Verificar BLIP_BOT_KEY', status: 'failed' },
+          { item: 'Verificar BLIP_HTTP_BASE_URL ou BLIP_CONTRACT_ID', status: 'failed' },
+          { item: 'Confirmar se a key pertence ao bot/roteador correto', status: 'failed' },
+        ],
+      };
+    }
+  }
+
+  private async syncBlipHistory(tenantId: string) {
+    const startedAt = new Date();
+    const syncOptions = this.getBlipSyncOptions();
+    const warnings: string[] = [];
+    let importedContacts = 0;
+    let importedMessages = 0;
+    let skipped = 0;
+    let contacts: BlipContactPayload[] = [];
+
+    try {
+      if (syncOptions.includeContacts) {
+        contacts = await this.fetchBlipContacts(syncOptions);
+
+        for (const contactPayload of contacts) {
+          const imported = await this.upsertBlipContact(tenantId, contactPayload);
+          importedContacts += imported ? 1 : 0;
+          skipped += imported ? 0 : 1;
+        }
+      }
+
+      if (syncOptions.includeThreads) {
+        for (const contactPayload of contacts) {
+          const identity = extractBlipContactIdentity(contactPayload);
+
+          if (!identity) {
+            skipped += 1;
+            continue;
+          }
+
+          try {
+            const messages = await this.fetchBlipThreadMessages(identity, syncOptions);
+
+            for (const messagePayload of messages) {
+              const imported = await this.upsertBlipMessage(tenantId, messagePayload, contactPayload, 'thread');
+              importedMessages += imported ? 1 : 0;
+              skipped += imported ? 0 : 1;
+            }
+          } catch (error) {
+            warnings.push(`Thread ${identity}: ${error instanceof Error ? error.message : 'erro desconhecido'}`);
+          }
+        }
+      }
+
+      if (syncOptions.includeLoggedMessages) {
+        try {
+          const messages = await this.fetchBlipLoggedMessages(syncOptions);
+
+          for (const messagePayload of messages) {
+            const imported = await this.upsertBlipMessage(tenantId, messagePayload, undefined, 'logged-message');
+            importedMessages += imported ? 1 : 0;
+            skipped += imported ? 0 : 1;
+          }
+        } catch (error) {
+          warnings.push(`Mensagens logadas: ${error instanceof Error ? error.message : 'endpoint nao disponivel'}`);
+        }
+      }
+
+      await this.prisma.integrationConfig.updateMany({
+        where: { tenantId, provider: IntegrationProvider.BLIP },
+        data: {
+          isActive: true,
+          settings: {
+            mode: 'webhook + api backfill',
+            authMethod: 'authorization-key',
+            apiBaseUrl: this.buildBlipCommandsUrl().replace(/\/commands$/, ''),
+            syncStrategy: 'commands-api',
+            syncEnabled: true,
+            lastSyncAt: new Date().toISOString(),
+            lastSyncContacts: importedContacts,
+            lastSyncMessages: importedMessages,
+            lastSyncSkipped: skipped,
+            warnings: warnings.slice(0, 10),
+            contactLimit: syncOptions.contactLimit ?? 'all',
+            contactPageSize: syncOptions.contactPageSize,
+            threadMessagesPerContact: syncOptions.threadMessagesPerContact,
+            includeLoggedMessages: syncOptions.includeLoggedMessages,
+            sourceRetentionDays: Number(this.configService.get<string>('BLIP_SOURCE_RETENTION_DAYS', '90')),
+            atendebiRetentionDays: Number(this.configService.get<string>('ATENDEBI_RETENTION_DAYS', '730')),
+          },
+        },
+      });
+
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          action: 'integration.blip.sync.completed',
+          entityType: 'integration',
+          entityId: IntegrationProvider.BLIP,
+          metadata: {
+            importedContacts,
+            importedMessages,
+            skipped,
+            warnings: warnings.slice(0, 20),
+            startedAt: startedAt.toISOString(),
+            finishedAt: new Date().toISOString(),
+            contactLimit: syncOptions.contactLimit ?? 'all',
+            threadMessagesPerContact: syncOptions.threadMessagesPerContact,
+          },
+        },
+      });
+
+      return {
+        provider: IntegrationProvider.BLIP,
+        accepted: true,
+        status: warnings.length ? 'synced_with_warnings' : 'synced',
+        message: warnings.length
+          ? `Sincronismo BLiP concluido com avisos: ${importedContacts} contatos e ${importedMessages} mensagens importados.`
+          : `Sincronismo BLiP concluido: ${importedContacts} contatos e ${importedMessages} mensagens importados ou atualizados.`,
+        imported: importedContacts + importedMessages,
+        skipped,
+        contacts: importedContacts,
+        messages: importedMessages,
+        warnings: warnings.slice(0, 5),
+      };
+    } catch (error) {
+      return {
+        provider: IntegrationProvider.BLIP,
+        accepted: false,
+        status: 'sync_failed',
+        message: error instanceof Error ? error.message : 'Nao foi possivel sincronizar dados do BLiP.',
+        imported: importedContacts + importedMessages,
+        skipped,
+        contacts: importedContacts,
+        messages: importedMessages,
+        warnings: warnings.slice(0, 5),
+      };
+    }
+  }
+
+  private async fetchBlipContacts(syncOptions: BlipSyncOptions): Promise<BlipContactPayload[]> {
+    const contacts: BlipContactPayload[] = [];
+
+    for (let page = 0; page < syncOptions.maxContactPages; page += 1) {
+      const skip = page * syncOptions.contactPageSize;
+      const command = await this.sendBlipCommand(
+        'postmaster@crm.msging.net',
+        'get',
+        `/contacts?$skip=${skip}&$take=${syncOptions.contactPageSize}`,
+      );
+      const pageRows = extractBlipItems(command) as BlipContactPayload[];
+
+      if (pageRows.length === 0) {
+        break;
+      }
+
+      contacts.push(...pageRows);
+
+      if (syncOptions.contactLimit && contacts.length >= syncOptions.contactLimit) {
+        return contacts.slice(0, syncOptions.contactLimit);
+      }
+
+      if (pageRows.length < syncOptions.contactPageSize) {
+        break;
+      }
+    }
+
+    return syncOptions.contactLimit ? contacts.slice(0, syncOptions.contactLimit) : contacts;
+  }
+
+  private async fetchBlipThreadMessages(identity: string, syncOptions: BlipSyncOptions): Promise<BlipThreadMessagePayload[]> {
+    const take = syncOptions.threadMessagesPerContact;
+    const command = await this.sendBlipCommand('postmaster@msging.net', 'get', `/threads/${encodeURIComponent(identity)}?$take=${take}`);
+
+    return extractBlipItems(command) as BlipThreadMessagePayload[];
+  }
+
+  private async fetchBlipLoggedMessages(syncOptions: BlipSyncOptions): Promise<BlipThreadMessagePayload[]> {
+    const messages: BlipThreadMessagePayload[] = [];
+
+    for (let page = 0; page < syncOptions.maxLoggedMessagePages; page += 1) {
+      const skip = page * syncOptions.loggedMessagesPageSize;
+      const command = await this.sendBlipCommand(
+        'postmaster@msging.net',
+        'get',
+        `/messages?$skip=${skip}&$take=${syncOptions.loggedMessagesPageSize}`,
+      );
+      const pageRows = extractBlipItems(command) as BlipThreadMessagePayload[];
+
+      if (pageRows.length === 0) {
+        break;
+      }
+
+      messages.push(...pageRows);
+
+      if (syncOptions.loggedMessagesLimit && messages.length >= syncOptions.loggedMessagesLimit) {
+        return messages.slice(0, syncOptions.loggedMessagesLimit);
+      }
+
+      if (pageRows.length < syncOptions.loggedMessagesPageSize) {
+        break;
+      }
+    }
+
+    return syncOptions.loggedMessagesLimit ? messages.slice(0, syncOptions.loggedMessagesLimit) : messages;
+  }
+
+  private async sendBlipCommand(to: string, method: 'get' | 'set' | 'delete', uri: string, resource?: unknown) {
+    const { commandsUrl, key } = this.getBlipConfig();
+    const response = await fetch(commandsUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Key ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: randomUUID(),
+        to,
+        method,
+        uri,
+        ...(resource ? { resource } : {}),
+      }),
+    });
+
+    const bodyText = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`BLiP Commands API retornou ${response.status}: ${truncate(bodyText, 240)}`);
+    }
+
+    const body = parseJsonRecord(bodyText);
+    const status = readUnknownString(body.status)?.toLowerCase();
+
+    if (status && status !== 'success') {
+      const reason = asRecord(body.reason);
+      const description = readUnknownString(reason.description) ?? readUnknownString(reason.code) ?? bodyText;
+      throw new Error(`BLiP Commands API retornou status ${status}: ${truncate(description, 240)}`);
+    }
+
+    return body;
+  }
+
+  private async upsertBlipContact(tenantId: string, contactPayload: BlipContactPayload) {
+    const identity = extractBlipContactIdentity(contactPayload);
+
+    if (!identity) {
+      return false;
+    }
+
+    const rawEvent = await this.upsertBlipRawEvent(tenantId, `blip-contact-${identity}`, 'blip.contact.backfill', contactPayload);
+    const name = extractBlipContactName(contactPayload, identity);
+    const phone = extractBlipPhone(contactPayload, identity);
+    const email = readFirstString(contactPayload, ['email', 'extras.email']);
+
+    await this.prisma.contact.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: truncate(identity, 180),
+        },
+      },
+      update: {
+        name,
+        phone,
+        email,
+        metadata: {
+          source: 'BLIP',
+          provider: 'BLIP',
+          channel: inferBlipChannel(contactPayload, identity),
+          rawEventId: rawEvent.id,
+        },
+      },
+      create: {
+        tenantId,
+        externalId: truncate(identity, 180),
+        name,
+        phone,
+        email,
+        metadata: {
+          source: 'BLIP',
+          provider: 'BLIP',
+          channel: inferBlipChannel(contactPayload, identity),
+          rawEventId: rawEvent.id,
+        },
+      },
+    });
+
+    return true;
+  }
+
+  private async upsertBlipMessage(
+    tenantId: string,
+    messagePayload: BlipThreadMessagePayload,
+    contactPayload: BlipContactPayload | undefined,
+    source: 'thread' | 'logged-message',
+  ) {
+    const message = unwrapBlipMessage(messagePayload);
+    const from = readFirstString(message, ['from', 'message.from', 'resource.from']);
+    const to = readFirstString(message, ['to', 'message.to', 'resource.to']);
+    const fallbackIdentity = contactPayload ? extractBlipContactIdentity(contactPayload) : undefined;
+    const contactIdentity = extractBlipConversationIdentity(message, fallbackIdentity, from, to);
+
+    if (!contactIdentity) {
+      return false;
+    }
+
+    const content = extractBlipContent(message);
+
+    if (!content) {
+      return false;
+    }
+
+    const payloadHash = hashJson({ source, contactIdentity, messagePayload });
+    const messageId = readFirstString(message, ['id', 'messageId', 'message.id', 'resource.id']) ?? payloadHash.slice(0, 32);
+    const messageExternalId = truncate(`blip-message-${contactIdentity}-${messageId}`, 180);
+    const rawEvent = await this.upsertBlipRawEvent(
+      tenantId,
+      messageExternalId,
+      source === 'thread' ? 'blip.thread.message' : 'blip.logged.message',
+      messagePayload,
+    );
+    const channel = inferBlipChannel(message, contactIdentity);
+    const direction = inferBlipDirection(message, from, to);
+    const sentAt = extractBlipDate(message, rawEvent.receivedAt);
+    const queueName = readFirstString(message, ['queue.name', 'resource.queue.name', 'metadata.queue', 'extras.queue']) ?? `BLiP - ${channel}`;
+    const agentName =
+      readFirstString(message, ['agent.name', 'attendant.name', 'operator.name', 'resource.agent.name', 'metadata.agent']) ??
+      (direction === MessageDirection.OUTBOUND ? 'BLiP Bot / Atendente' : undefined);
+    const contactName =
+      readFirstString(message, ['contact.name', 'customer.name', 'resource.customer.name']) ??
+      (contactPayload ? extractBlipContactName(contactPayload, contactIdentity) : undefined);
+    const contact = await this.prisma.contact.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: truncate(contactIdentity, 180),
+        },
+      },
+      update: {
+        name: contactName,
+        phone: extractBlipPhone(contactPayload ?? message, contactIdentity),
+        metadata: {
+          source: 'BLIP',
+          provider: 'BLIP',
+          channel,
+        },
+      },
+      create: {
+        tenantId,
+        externalId: truncate(contactIdentity, 180),
+        name: contactName,
+        phone: extractBlipPhone(contactPayload ?? message, contactIdentity),
+        metadata: {
+          source: 'BLIP',
+          provider: 'BLIP',
+          channel,
+        },
+      },
+    });
+    const queue = await this.prisma.supportQueue.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: stableExternalId('blip-queue', queueName),
+        },
+      },
+      update: { name: queueName, isActive: true },
+      create: {
+        tenantId,
+        externalId: stableExternalId('blip-queue', queueName),
+        name: queueName,
+        isActive: true,
+      },
+    });
+    const agent = agentName
+      ? await this.prisma.agent.upsert({
+          where: {
+            tenantId_externalId: {
+              tenantId,
+              externalId: stableExternalId('blip-agent', agentName),
+            },
+          },
+          update: { name: agentName, isActive: true },
+          create: {
+            tenantId,
+            externalId: stableExternalId('blip-agent', agentName),
+            name: agentName,
+            isActive: true,
+          },
+        })
+      : null;
+    const status = inferBlipTicketStatus(message);
+    const ticketExternalId =
+      truncate(
+        readFirstString(message, ['ticket.id', 'conversation.id', 'thread.id', 'resource.ticketId', 'resource.threadId']) ??
+          `ticket-${contactIdentity}`,
+        180,
+      ) ?? `ticket-${payloadHash.slice(0, 32)}`;
+    const subject = truncate(readFirstString(message, ['subject', 'category', 'resource.category']) ?? `Conversa BLiP - ${channel}`, 240);
+    const ticket = await this.prisma.ticket.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: ticketExternalId,
+        },
+      },
+      update: {
+        contactId: contact.id,
+        queueId: queue.id,
+        agentId: agent?.id ?? undefined,
+        status,
+        channel,
+        subject,
+        firstResponseAt: direction === MessageDirection.OUTBOUND ? sentAt : undefined,
+        metadata: buildBlipTicketMetadata({
+          channel,
+          queueName,
+          agentName,
+          contactName: contact.name ?? 'Cliente BLiP',
+          status,
+          content,
+          source,
+        }),
+      },
+      create: {
+        tenantId,
+        externalId: ticketExternalId,
+        contactId: contact.id,
+        queueId: queue.id,
+        agentId: agent?.id,
+        status,
+        channel,
+        subject,
+        openedAt: sentAt,
+        closedAt: status === TicketStatus.CLOSED ? sentAt : null,
+        firstResponseAt: direction === MessageDirection.OUTBOUND ? sentAt : undefined,
+        metadata: buildBlipTicketMetadata({
+          channel,
+          queueName,
+          agentName,
+          contactName: contact.name ?? 'Cliente BLiP',
+          status,
+          content,
+          source,
+        }),
+      },
+    });
+
+    await this.attachTag(tenantId, ticket.id, 'BLiP', '#0ea5e9');
+    await this.attachTag(tenantId, ticket.id, channel, channel === 'WhatsApp' ? '#22c55e' : '#38bdf8');
+
+    await this.prisma.message.upsert({
+      where: {
+        tenantId_externalId: {
+          tenantId,
+          externalId: messageExternalId,
+        },
+      },
+      update: {
+        ticketId: ticket.id,
+        contactId: contact.id,
+        agentId: agent?.id ?? null,
+        rawEventId: rawEvent.id,
+        direction,
+        senderName: inferBlipSenderName(direction, contact.name, agentName),
+        content,
+        contentType: readFirstString(message, ['content.type', 'type', 'message.type']) ?? 'text/plain',
+        sentAt,
+      },
+      create: {
+        tenantId,
+        ticketId: ticket.id,
+        contactId: contact.id,
+        agentId: agent?.id,
+        rawEventId: rawEvent.id,
+        externalId: messageExternalId,
+        direction,
+        senderName: inferBlipSenderName(direction, contact.name, agentName),
+        content,
+        contentType: readFirstString(message, ['content.type', 'type', 'message.type']) ?? 'text/plain',
+        sentAt,
+        metadata: {
+          source: 'BLIP',
+          provider: 'BLIP',
+          syncSource: source,
+          senderRole: direction === MessageDirection.INBOUND ? 'Cliente' : direction === MessageDirection.OUTBOUND ? 'Atendente/Bot' : 'Sistema',
+        },
+      },
+    });
+
+    return true;
+  }
+
+  private async upsertBlipRawEvent(tenantId: string, providerEventId: string, eventType: string, payload: unknown) {
+    const payloadHash = hashJson({ eventType, payload });
+
+    return this.prisma.rawEvent.upsert({
+      where: {
+        tenantId_provider_providerEventId: {
+          tenantId,
+          provider: IntegrationProvider.BLIP,
+          providerEventId: truncate(providerEventId, 180),
+        },
+      },
+      update: {
+        eventType,
+        payloadHash,
+        payload: toInputJson(payload),
+        processingStatus: RawEventStatus.PROCESSED,
+        processedAt: new Date(),
+        errorMessage: null,
+      },
+      create: {
+        tenantId,
+        provider: IntegrationProvider.BLIP,
+        providerEventId: truncate(providerEventId, 180),
+        eventType,
+        payloadHash,
+        payload: toInputJson(payload),
+        processingStatus: RawEventStatus.PROCESSED,
+        processedAt: new Date(),
+      },
+    });
+  }
+
+  private getBlipConfig() {
+    const key = firstConfiguredValue(
+      this.configService.get<string>('BLIP_BOT_KEY'),
+      this.configService.get<string>('BLIP_ACCESS_KEY'),
+      this.configService.get<string>('BLIP_AUTH_KEY'),
+    );
+    const commandsUrl = this.buildBlipCommandsUrl();
+
+    if (!key) {
+      throw new Error('BLIP_BOT_KEY precisa estar configurada no .env da API para sincronismo por API.');
+    }
+
+    if (commandsUrl.includes('SEU_CONTRATO')) {
+      throw new Error('BLIP_HTTP_BASE_URL ou BLIP_CONTRACT_ID precisa estar configurado no .env da API.');
+    }
+
+    return {
+      commandsUrl,
+      key,
+    };
+  }
+
+  private getBlipSyncOptions(): BlipSyncOptions {
+    const rawContactLimit = Number(this.configService.get<string>('BLIP_SYNC_CONTACT_LIMIT', '200'));
+    const rawLoggedLimit = Number(this.configService.get<string>('BLIP_SYNC_LOGGED_MESSAGE_LIMIT', '0'));
+
+    return {
+      contactLimit: Number.isFinite(rawContactLimit) && rawContactLimit > 0 ? clamp(rawContactLimit, 1, 100000) : null,
+      contactPageSize: clamp(Number(this.configService.get<string>('BLIP_SYNC_CONTACT_PAGE_SIZE', '100')), 1, 100),
+      maxContactPages: clamp(Number(this.configService.get<string>('BLIP_SYNC_MAX_CONTACT_PAGES', '20')), 1, 1000),
+      threadMessagesPerContact: clamp(Number(this.configService.get<string>('BLIP_SYNC_THREAD_MESSAGES_PER_CONTACT', '20')), 1, 100),
+      loggedMessagesLimit: Number.isFinite(rawLoggedLimit) && rawLoggedLimit > 0 ? clamp(rawLoggedLimit, 1, 100000) : null,
+      loggedMessagesPageSize: clamp(Number(this.configService.get<string>('BLIP_SYNC_LOGGED_MESSAGE_PAGE_SIZE', '100')), 1, 100),
+      maxLoggedMessagePages: clamp(Number(this.configService.get<string>('BLIP_SYNC_MAX_LOGGED_MESSAGE_PAGES', '3')), 1, 1000),
+      includeContacts: this.configService.get<string>('BLIP_SYNC_INCLUDE_CONTACTS', 'true') !== 'false',
+      includeThreads: this.configService.get<string>('BLIP_SYNC_INCLUDE_THREADS', 'true') !== 'false',
+      includeLoggedMessages: this.configService.get<string>('BLIP_SYNC_INCLUDE_LOGGED_MESSAGES', 'false') === 'true',
+    };
   }
 
   private async testGlpiConnection(provider: SupportedProvider) {
@@ -1451,6 +2138,367 @@ export class IntegrationsService {
 
 type GlpiTicketPayload = Record<string, unknown>;
 
+function parseJsonRecord(bodyText: string): Record<string, unknown> {
+  try {
+    return asRecord(JSON.parse(bodyText) as unknown);
+  } catch {
+    return {};
+  }
+}
+
+function hashJson(value: unknown) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function extractBlipItems(command: Record<string, unknown>) {
+  const resource = command.resource;
+
+  if (Array.isArray(resource)) {
+    return resource.map(asRecord);
+  }
+
+  if (Array.isArray(command.items)) {
+    return command.items.map(asRecord);
+  }
+
+  const resourceRecord = asRecord(resource);
+
+  if (Array.isArray(resourceRecord.items)) {
+    return resourceRecord.items.map(asRecord);
+  }
+
+  if (Array.isArray(resourceRecord.messages)) {
+    return resourceRecord.messages.map(asRecord);
+  }
+
+  if (resource && typeof resource === 'object') {
+    return [resourceRecord];
+  }
+
+  return [];
+}
+
+function unwrapBlipMessage(messagePayload: BlipThreadMessagePayload) {
+  const nestedMessage = asRecord(messagePayload.message);
+
+  if (Object.keys(nestedMessage).length === 0) {
+    return messagePayload;
+  }
+
+  return {
+    ...messagePayload,
+    ...nestedMessage,
+    metadata: {
+      ...asRecord(messagePayload.metadata),
+      ...asRecord(nestedMessage.metadata),
+    },
+  };
+}
+
+function extractBlipContactIdentity(payload: Record<string, unknown>) {
+  const identity = readFirstString(payload, [
+    'identity',
+    'userIdentity',
+    'contactIdentity',
+    'customerIdentity',
+    'address',
+    'contact.identity',
+    'customer.identity',
+    'resource.identity',
+    'resource.customer.identity',
+  ]);
+
+  return identity ? truncate(identity, 180) : undefined;
+}
+
+function extractBlipConversationIdentity(
+  payload: Record<string, unknown>,
+  fallbackIdentity?: string,
+  from?: string,
+  to?: string,
+) {
+  const explicit = readFirstString(payload, [
+    'contact.identity',
+    'customer.identity',
+    'resource.customer.identity',
+    'resource.contact.identity',
+    'metadata.customerIdentity',
+    'userIdentity',
+    'identity',
+  ]);
+  const candidate = explicit ?? fallbackIdentity ?? [from, to].find((item) => item && isLikelyBlipCustomerAddress(item));
+
+  return candidate ? truncate(candidate, 180) : undefined;
+}
+
+function extractBlipContactName(payload: Record<string, unknown>, identity: string) {
+  return (
+    readFirstString(payload, [
+      'name',
+      'fullName',
+      'displayName',
+      'contact.name',
+      'customer.name',
+      'resource.customer.name',
+      'extras.name',
+    ]) ?? extractBlipPhone(payload, identity) ?? 'Cliente BLiP'
+  );
+}
+
+function extractBlipPhone(payload: Record<string, unknown> | undefined, identity?: string) {
+  const explicit = payload
+    ? readFirstString(payload, ['phoneNumber', 'phone', 'telephone', 'contact.phone', 'customer.phone', 'extras.phone'])
+    : undefined;
+
+  if (explicit) {
+    return truncate(explicit, 40);
+  }
+
+  if (!identity) {
+    return undefined;
+  }
+
+  const [prefix] = identity.split('@');
+  const digits = prefix.replace(/\D/g, '');
+
+  return digits.length >= 8 ? truncate(`+${digits}`, 40) : undefined;
+}
+
+function inferBlipChannel(payload: Record<string, unknown>, identity?: string) {
+  const explicit = readFirstString(payload, ['channel', 'source', 'resource.channel', 'metadata.channel', 'extras.channel']);
+
+  if (explicit) {
+    return truncate(explicit, 80);
+  }
+
+  const source = identity?.toLowerCase() ?? '';
+
+  if (source.includes('@wa.gw') || source.includes('whatsapp')) {
+    return 'WhatsApp';
+  }
+
+  if (source.includes('instagram')) {
+    return 'Instagram';
+  }
+
+  if (source.includes('facebook')) {
+    return 'Facebook';
+  }
+
+  if (source.includes('mail') || source.includes('email')) {
+    return 'E-mail';
+  }
+
+  return 'BLiP';
+}
+
+function inferBlipDirection(payload: Record<string, unknown>, from?: string, to?: string): MessageDirection {
+  const direction = readFirstString(payload, ['direction', 'message.direction', 'resource.direction'])?.toLowerCase();
+
+  if (direction && ['outbound', 'outgoing', 'sent', 'enviada'].includes(direction)) {
+    return MessageDirection.OUTBOUND;
+  }
+
+  if (direction && ['inbound', 'incoming', 'received', 'recebida'].includes(direction)) {
+    return MessageDirection.INBOUND;
+  }
+
+  if (from && isLikelyBlipCustomerAddress(from)) {
+    return MessageDirection.INBOUND;
+  }
+
+  if (to && isLikelyBlipCustomerAddress(to)) {
+    return MessageDirection.OUTBOUND;
+  }
+
+  return MessageDirection.SYSTEM;
+}
+
+function inferBlipTicketStatus(payload: Record<string, unknown>) {
+  const status = readFirstString(payload, ['status', 'ticket.status', 'resource.status', 'metadata.status'])?.toLowerCase();
+
+  if (!status) {
+    return TicketStatus.OPEN;
+  }
+
+  if (['closed', 'finished', 'completed', 'resolved', 'fechado', 'finalizado', 'resolvido'].includes(status)) {
+    return TicketStatus.CLOSED;
+  }
+
+  if (['canceled', 'cancelled', 'cancelado'].includes(status)) {
+    return TicketStatus.CANCELED;
+  }
+
+  if (['pending', 'waiting', 'pendente', 'aguardando'].includes(status)) {
+    return TicketStatus.PENDING;
+  }
+
+  return TicketStatus.OPEN;
+}
+
+function extractBlipDate(payload: Record<string, unknown>, fallback: Date) {
+  const value = readFirstValue(payload, ['date', 'timestamp', 'sentAt', 'message.date', 'resource.date', 'metadata.#wa.timestamp']);
+
+  if (typeof value === 'string') {
+    const parsed = /^\d+$/.test(value) ? new Date(Number(value) * (value.length <= 10 ? 1000 : 1)) : new Date(value);
+
+    return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+  }
+
+  if (typeof value === 'number') {
+    const parsed = new Date(value * (value <= 9999999999 ? 1000 : 1));
+
+    return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+  }
+
+  return fallback;
+}
+
+function extractBlipContent(payload: Record<string, unknown>) {
+  const value = readFirstValue(payload, ['content', 'text', 'body', 'message.content', 'resource.content']);
+
+  if (typeof value === 'string') {
+    return value.trim() || undefined;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (value && typeof value === 'object') {
+    const record = asRecord(value);
+    const text = readFirstString(record, ['text', 'title', 'description', 'value']);
+
+    return text ?? JSON.stringify(value);
+  }
+
+  return undefined;
+}
+
+function inferBlipSenderName(direction: MessageDirection, contactName?: string | null, agentName?: string) {
+  if (direction === MessageDirection.INBOUND) {
+    return contactName ?? 'Cliente BLiP';
+  }
+
+  if (direction === MessageDirection.OUTBOUND) {
+    return agentName ?? 'BLiP Bot / Atendente';
+  }
+
+  return 'BLiP';
+}
+
+function buildBlipTicketMetadata({
+  channel,
+  queueName,
+  agentName,
+  contactName,
+  status,
+  content,
+  source,
+}: {
+  channel: string;
+  queueName: string;
+  agentName?: string;
+  contactName: string;
+  status: TicketStatus;
+  content: string;
+  source: 'thread' | 'logged-message';
+}) {
+  const contentLower = content.toLowerCase();
+  const isComplaint = /reclama|problema|cancel|insatis|demora|erro|falha/.test(contentLower);
+  const isOpportunity = /compr|proposta|orcamento|orçamento|venda|valor|preco|preço/.test(contentLower);
+  const risk = isComplaint ? 'medio' : 'baixo';
+
+  return {
+    source: 'BLIP',
+    provider: 'BLIP',
+    syncSource: source,
+    channel,
+    queueDisplayName: queueName,
+    agentDisplayName: agentName ?? 'Sem atendente identificado',
+    customerDisplayName: contactName,
+    group: queueName,
+    signal: `Conversa / ${channel}`,
+    sentiment: isComplaint ? 'negativo' : 'neutro',
+    risk,
+    resolutionStatus: status === TicketStatus.CLOSED ? 'Finalizado no BLiP' : 'Historico importado do BLiP',
+    waitMinutes: 0,
+    summary: truncate(content, 280),
+    isComplaint,
+    isOpportunity,
+    botFallback: false,
+    unresolved: status !== TicketStatus.CLOSED,
+  };
+}
+
+function readFirstString(payload: Record<string, unknown>, paths: string[]) {
+  for (const path of paths) {
+    const value = readPathValue(payload, path);
+
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return undefined;
+}
+
+function readFirstValue(payload: Record<string, unknown>, paths: string[]) {
+  for (const path of paths) {
+    const value = readPathValue(payload, path);
+
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function readPathValue(payload: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((current, key) => {
+    if (!current || typeof current !== 'object') {
+      return undefined;
+    }
+
+    return (current as Record<string, unknown>)[key];
+  }, payload);
+}
+
+function isLikelyBlipCustomerAddress(value: string) {
+  const normalized = value.toLowerCase();
+
+  return (
+    normalized.includes('@wa.gw.msging.net') ||
+    normalized.includes('@instagram.gw') ||
+    normalized.includes('@facebook.gw') ||
+    normalized.includes('@0mn.io') ||
+    (!normalized.includes('@msging.net') && !normalized.includes('postmaster@'))
+  );
+}
+
+function stableExternalId(prefix: string, value: string) {
+  const slug = value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return truncate(`${prefix}-${slug || hashJson(value).slice(0, 16)}`, 180);
+}
+
+function normalizeBlipBaseUrl(value: string) {
+  const trimmed = value.trim().replace(/\/$/, '');
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  return withProtocol.replace(/\/commands$/, '');
+}
+
 function parseProvider(providerParam: string): SupportedProvider {
   const normalized = providerParam.trim().toUpperCase().replace(/[-\s]/g, '_');
 
@@ -1501,7 +2549,12 @@ function providerDescription(provider: SupportedProvider) {
 
 function requiredSettings(provider: SupportedProvider) {
   if (provider === IntegrationProvider.BLIP) {
-    return ['WEBHOOK_PUBLIC_BASE_URL', 'BLIP_WEBHOOK_SECRET quando o secret for obrigatorio'];
+    return [
+      'WEBHOOK_PUBLIC_BASE_URL',
+      'BLIP_WEBHOOK_SECRET quando o secret for obrigatorio',
+      'BLIP_BOT_KEY para backfill por API',
+      'BLIP_HTTP_BASE_URL ou BLIP_CONTRACT_ID',
+    ];
   }
 
   if (provider === IntegrationProvider.GLPI) {
@@ -1526,7 +2579,7 @@ function capabilities(provider: SupportedProvider) {
 function nextAction(provider: SupportedProvider, missingSettings: string[]) {
   if (missingSettings.length === 0) {
     return provider === IntegrationProvider.BLIP
-      ? 'Configurar o webhook na plataforma e acompanhar raw_events.'
+      ? 'Configurar o webhook na plataforma e executar sync quando quiser puxar historico recente.'
       : 'Executar teste de prontidao e habilitar o conector real de sincronismo.';
   }
 
@@ -1535,7 +2588,7 @@ function nextAction(provider: SupportedProvider, missingSettings: string[]) {
 
 function readyMessage(provider: SupportedProvider) {
   if (provider === IntegrationProvider.BLIP) {
-    return 'Webhook BLiP pronto para receber eventos. O token continua fora do frontend.';
+    return 'Webhook e backfill BLiP prontos. A key continua somente no backend.';
   }
 
   if (provider === IntegrationProvider.GLPI) {
@@ -1554,6 +2607,7 @@ function buildChecklist(provider: SupportedProvider, missingSettings: string[]) 
     [IntegrationProvider.BLIP]: [
       'Cadastrar a URL do webhook no BLiP.',
       'Manter token/chave BLiP apenas no backend ou cofre.',
+      'Definir BLIP_BOT_KEY e BLIP_HTTP_BASE_URL ou BLIP_CONTRACT_ID para sincronizar historico recente.',
       'Validar x-atendebi-webhook-secret quando WEBHOOK_SECRET_REQUIRED=true.',
     ],
     [IntegrationProvider.GLPI]: [

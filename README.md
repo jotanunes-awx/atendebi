@@ -248,6 +248,48 @@ curl "http://localhost:3333/tickets?search=Cliente%20Teste" ^
   -H "x-roles: ATENDEBI_ADMIN"
 ```
 
+## BLiP com key real
+
+Com a key de acesso do BLiP, o AtendeBI fica com dois caminhos:
+
+- Webhook: recebe eventos novos em tempo real e salva o JSON bruto em `raw_events`.
+- Sync por API: usa a Commands API para puxar contatos e mensagens recentes para `contacts`, `tickets` e `messages`.
+
+Importante: a key nunca deve ficar no frontend, no GitHub ou em prints. Coloque somente no `.env` da API no servidor.
+
+Exemplo de configuracao no `.env` da API:
+
+```env
+BLIP_ENABLED=true
+BLIP_SYNC_ENABLED=true
+BLIP_BOT_KEY=cole-a-key-somente-no-servidor
+BLIP_CONTRACT_ID=jotanunes
+BLIP_HTTP_BASE_URL=https://jotanunes.http.msging.net
+BLIP_SYNC_CONTACT_LIMIT=200
+BLIP_SYNC_THREAD_MESSAGES_PER_CONTACT=20
+BLIP_SYNC_INCLUDE_LOGGED_MESSAGES=false
+```
+
+Se preferir, use `BLIP_HTTP_BASE_URL` diretamente. Se preencher apenas `BLIP_CONTRACT_ID`, a API monta `https://SEU_CONTRATO.http.msging.net/commands`.
+
+Teste a conexao:
+
+```bash
+curl -X POST http://localhost:3333/integrations/BLIP/test \
+  -H "x-tenant-id: local-tenant" \
+  -H "x-roles: ATENDEBI_ADMIN"
+```
+
+Execute a carga inicial/backfill:
+
+```bash
+curl -X POST http://localhost:3333/integrations/BLIP/sync \
+  -H "x-tenant-id: local-tenant" \
+  -H "x-roles: ATENDEBI_ADMIN"
+```
+
+O retorno informa quantos contatos e mensagens foram importados. Se algum endpoint de historico nao estiver liberado no contrato, o sync termina com aviso e mantem o que conseguiu importar. Para historico muito antigo, podemos criar uma etapa separada de importacao dos logs antigos do servidor legado.
+
 ## Integracoes GLPI e Teams/PABX
 
 GLPI e o caminho mais simples para testar dados reais agora, porque normalmente basta habilitar a API REST e gerar tokens de aplicacao/usuario. Configure no `.env` da API:

@@ -309,7 +309,7 @@ function buildIntegrationSummaries({
         missingSettings.length > 0
           ? `Configurar ${missingSettings.join(', ')} no .env da API.`
           : provider === IntegrationProvider.BLIP
-            ? 'Cadastrar webhook na origem e acompanhar raw_events.'
+            ? 'Cadastrar webhook na origem e executar sync para puxar historico recente.'
             : 'Executar teste de prontidao e ativar sincronismo real.',
       capabilities: integrationCapabilities(provider),
       settingsPreview: integrationSettingsPreview(provider, settings, configService),
@@ -320,7 +320,33 @@ function buildIntegrationSummaries({
 function getMissingIntegrationSettings(provider: IntegrationProvider, settings: Record<string, unknown>, configService: ConfigService) {
   if (provider === IntegrationProvider.BLIP) {
     const webhookSecretRequired = configService.get<string>('WEBHOOK_SECRET_REQUIRED', 'false').toLowerCase() === 'true';
-    return webhookSecretRequired && !configService.get<string>('BLIP_WEBHOOK_SECRET') ? ['BLIP_WEBHOOK_SECRET'] : [];
+    const missing = webhookSecretRequired && !configService.get<string>('BLIP_WEBHOOK_SECRET') ? ['BLIP_WEBHOOK_SECRET'] : [];
+    const syncEnabled =
+      configService.get<string>('BLIP_ENABLED', 'false') === 'true' ||
+      configService.get<string>('BLIP_SYNC_ENABLED', 'false') === 'true';
+
+    if (syncEnabled) {
+      const key = firstConfiguredValue(
+        configService.get<string>('BLIP_BOT_KEY'),
+        configService.get<string>('BLIP_ACCESS_KEY'),
+        configService.get<string>('BLIP_AUTH_KEY'),
+      );
+      const httpBaseUrl = firstConfiguredValue(
+        configService.get<string>('BLIP_HTTP_BASE_URL'),
+        configService.get<string>('BLIP_API_BASE_URL'),
+      );
+      const contractId = firstConfiguredValue(configService.get<string>('BLIP_CONTRACT_ID'));
+
+      if (!key) {
+        missing.push('BLIP_BOT_KEY');
+      }
+
+      if (!httpBaseUrl && !contractId) {
+        missing.push('BLIP_HTTP_BASE_URL ou BLIP_CONTRACT_ID');
+      }
+    }
+
+    return missing;
   }
 
   if (provider === IntegrationProvider.GLPI) {
@@ -380,7 +406,12 @@ function integrationDescription(provider: IntegrationProvider) {
 
 function integrationRequiredSettings(provider: IntegrationProvider) {
   if (provider === IntegrationProvider.BLIP) {
-    return ['WEBHOOK_PUBLIC_BASE_URL', 'BLIP_WEBHOOK_SECRET quando obrigatorio'];
+    return [
+      'WEBHOOK_PUBLIC_BASE_URL',
+      'BLIP_WEBHOOK_SECRET quando obrigatorio',
+      'BLIP_BOT_KEY para backfill por API',
+      'BLIP_HTTP_BASE_URL ou BLIP_CONTRACT_ID',
+    ];
   }
 
   if (provider === IntegrationProvider.GLPI) {
@@ -405,7 +436,22 @@ function integrationCapabilities(provider: IntegrationProvider) {
 function integrationSettingsPreview(provider: IntegrationProvider, settings: Record<string, unknown>, configService: ConfigService) {
   if (provider === IntegrationProvider.BLIP) {
     return {
-      mode: readString(settings, 'mode', 'webhook'),
+      mode:
+        configService.get<string>('BLIP_SYNC_ENABLED', 'false') === 'true' ||
+        configService.get<string>('BLIP_ENABLED', 'false') === 'true'
+          ? 'webhook + api backfill'
+          : readString(settings, 'mode', 'webhook'),
+      apiBaseUrl: maskUrl(buildBlipCommandsUrl(configService).replace(/\/commands$/, '')),
+      authMethod: firstConfiguredValue(
+        configService.get<string>('BLIP_BOT_KEY'),
+        configService.get<string>('BLIP_ACCESS_KEY'),
+        configService.get<string>('BLIP_AUTH_KEY'),
+      )
+        ? 'Authorization Key'
+        : 'Nao configurado',
+      syncEnabled: configService.get<string>('BLIP_SYNC_ENABLED', 'false') === 'true',
+      contactLimit: configService.get<string>('BLIP_SYNC_CONTACT_LIMIT', '200'),
+      threadMessagesPerContact: configService.get<string>('BLIP_SYNC_THREAD_MESSAGES_PER_CONTACT', '20'),
       sourceRetentionDays: readNumber(settings, 'sourceRetentionDays') ?? 90,
       atendebiRetentionDays: readNumber(settings, 'atendebiRetentionDays') ?? Number(configService.get<string>('ATENDEBI_RETENTION_DAYS', '730')),
     };
@@ -445,6 +491,21 @@ function buildWebhookUrl(configService: ConfigService, tenantKey: string) {
   return `${baseUrl.replace(/\/$/, '')}/webhooks/blip/${tenantKey}`;
 }
 
+function buildBlipCommandsUrl(configService: ConfigService) {
+  const configuredBaseUrl = firstConfiguredValue(
+    configService.get<string>('BLIP_HTTP_BASE_URL'),
+    configService.get<string>('BLIP_API_BASE_URL'),
+  );
+  const contractId = firstConfiguredValue(configService.get<string>('BLIP_CONTRACT_ID'));
+  const baseUrl = configuredBaseUrl
+    ? normalizeBlipBaseUrl(configuredBaseUrl)
+    : contractId
+      ? `https://${contractId}.http.msging.net`
+      : 'https://SEU_CONTRATO.http.msging.net';
+
+  return `${baseUrl.replace(/\/commands$/, '')}/commands`;
+}
+
 function readNumber(record: Record<string, unknown>, key: string) {
   const value = record[key];
 
@@ -456,7 +517,28 @@ function hasConfiguredValue(value?: string) {
     return false;
   }
 
-  return !/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(value.trim());
+  const trimmed = value.trim();
+
+  if (/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(trimmed)) {
+    return false;
+  }
+
+  if (/^(SEU_|SUA_|COLE_AQUI|VALOR_|CHANGEME|CHANGE_ME)/i.test(trimmed)) {
+    return false;
+  }
+
+  return true;
+}
+
+function firstConfiguredValue(...values: Array<string | undefined>) {
+  return values.find((value) => hasConfiguredValue(value));
+}
+
+function normalizeBlipBaseUrl(value: string) {
+  const trimmed = value.trim().replace(/\/$/, '');
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  return withProtocol.replace(/\/commands$/, '');
 }
 
 function maskUrl(value: string) {
