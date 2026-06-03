@@ -3,11 +3,14 @@ import type { ConversationMessage } from '@/lib/mock-conversation-history';
 export type DemoTicketStatus = 'OPEN' | 'PENDING' | 'CLOSED' | 'CANCELED';
 export type DemoSentiment = 'positivo' | 'neutro' | 'negativo';
 export type DemoRisk = 'baixo' | 'medio' | 'alto';
-export type DemoChannel = 'WhatsApp' | 'Webchat' | 'Instagram' | 'Facebook' | 'Email';
+export type DemoChannel = 'WhatsApp' | 'Webchat' | 'Instagram' | 'Facebook' | 'Email' | 'BLiP' | 'GLPI' | 'Teams Phone' | string;
 
 export type DemoTicket = {
   id: string;
   customerName: string;
+  displayId?: string;
+  provider?: string;
+  providerLabel?: string;
   customerContact: string;
   queue: string;
   agent: string;

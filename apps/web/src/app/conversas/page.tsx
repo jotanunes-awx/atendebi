@@ -1,17 +1,23 @@
 'use client';
 
-import { Copy, Download, Filter, MessageSquareText } from 'lucide-react';
+import { Copy, Download, Filter, MessageSquareText, Search } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { ConversationTimeline } from '@/components/conversation-timeline';
-import { DataTable } from '@/components/data-table';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { RiskBadge } from '@/components/risk-badge';
 import { SentimentBadge } from '@/components/sentiment-badge';
 import { StatusBadge } from '@/components/status-badge';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { Button } from '@/components/ui/button';
-import { ticketColumns, getTicketSearchValue, formatDateTime, formatRatingLabel } from '@/components/ticket-columns';
+import {
+  formatDateTime,
+  formatRatingLabel,
+  getTicketDisplayId,
+  getTicketProvider,
+  getTicketProviderLabel,
+  getTicketSearchValue,
+} from '@/components/ticket-columns';
 import { getConversationMessages, getTickets } from '@/lib/api-client';
 import type { DemoTicket } from '@/lib/demo-data';
 
@@ -25,9 +31,11 @@ export default function ConversasPage() {
   const [period, setPeriod] = useState('active');
   const [status, setStatus] = useState('Todos');
   const [sentiment, setSentiment] = useState('Todos');
+  const [source, setSource] = useState('Todos');
   const [channel, setChannel] = useState('Todos');
   const [group, setGroup] = useState('Todos');
   const [tag, setTag] = useState('Todas');
+  const [search, setSearch] = useState('');
   const [selectedTicketId, setSelectedTicketId] = useState('');
   const [detailTicket, setDetailTicket] = useState<DemoTicket | null>(null);
   const [copied, setCopied] = useState(false);
@@ -48,9 +56,19 @@ export default function ConversasPage() {
 
   const allQueues = useMemo(() => ['Todas', ...Array.from(new Set(tickets.map((ticket) => ticket.queue)))], [tickets]);
   const allAgents = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.agent)))], [tickets]);
+  const allSources = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => getTicketProvider(ticket))))], [tickets]);
   const allChannels = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.channel)))], [tickets]);
   const allGroups = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.group)))], [tickets]);
   const allTags = useMemo(() => ['Todas', ...Array.from(new Set(tickets.flatMap((ticket) => ticket.tags)))], [tickets]);
+  const sourceCards = useMemo(() => {
+    return allSources
+      .filter((item) => item !== 'Todos')
+      .map((item) => ({
+        provider: item,
+        label: providerFilterLabel(item),
+        count: tickets.filter((ticket) => getTicketProvider(ticket) === item).length,
+      }));
+  }, [allSources, tickets]);
 
   useEffect(() => {
     const ticketFromUrl = new URLSearchParams(window.location.search).get('ticket');
@@ -61,18 +79,24 @@ export default function ConversasPage() {
   }, []);
 
   const filteredTickets = useMemo(() => {
+    const searchTerm = normalizeSearch(search);
+
     return tickets.filter((ticket) => {
+      const searchable = normalizeSearch(`${getTicketSearchValue(ticket)} ${getTicketDisplayId(ticket)}`);
+
       return (
         (queue === 'Todas' || ticket.queue === queue) &&
         (agent === 'Todos' || ticket.agent === agent) &&
         (status === 'Todos' || ticket.status === status) &&
         (sentiment === 'Todos' || ticket.sentiment === sentiment) &&
+        (source === 'Todos' || getTicketProvider(ticket) === source) &&
         (channel === 'Todos' || ticket.channel === channel) &&
         (group === 'Todos' || ticket.group === group) &&
-        (tag === 'Todas' || ticket.tags.includes(tag))
+        (tag === 'Todas' || ticket.tags.includes(tag)) &&
+        (!searchTerm || searchable.includes(searchTerm))
       );
     });
-  }, [agent, channel, group, queue, sentiment, status, tag, tickets]);
+  }, [agent, channel, group, queue, search, sentiment, source, status, tag, tickets]);
 
   useEffect(() => {
     if (filteredTickets.length > 0 && !filteredTickets.some((ticket) => ticket.id === selectedTicketId)) {
@@ -119,8 +143,9 @@ export default function ConversasPage() {
             <Filter className="h-4 w-4 text-primary" aria-hidden="true" />
             Filtros de investigacao
           </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-9">
             <FilterSelect label="Periodo" value={period} values={periodOptions} onChange={setPeriod} />
+            <FilterSelect label="Origem" value={source} values={allSources} onChange={setSource} />
             <FilterSelect label="Fila" value={queue} values={allQueues} onChange={setQueue} />
             <FilterSelect label="Atendente" value={agent} values={allAgents} onChange={setAgent} />
             <FilterSelect label="Status" value={status} values={allStatuses} onChange={setStatus} />
@@ -132,7 +157,7 @@ export default function ConversasPage() {
         </section>
 
         <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
+          <section className="min-w-0 rounded-lg border border-border bg-card p-4 shadow-panel">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-semibold text-card-foreground">Lista de conversas</h3>
@@ -143,24 +168,43 @@ export default function ConversasPage() {
                 Exportar
               </Button>
             </div>
-            <DataTable
-              data={filteredTickets}
-              columns={ticketColumns}
-              getSearchValue={getTicketSearchValue}
-              searchPlaceholder="Buscar cliente, telefone, ticket, tag ou assunto"
-              onRowClick={(ticket) => setSelectedTicketId(ticket.id)}
+
+            <div className="mb-4 grid gap-2 sm:grid-cols-3">
+              {sourceCards.map((item) => (
+                <button
+                  key={item.provider}
+                  type="button"
+                  onClick={() => setSource(item.provider)}
+                  className={`rounded-lg border px-3 py-2 text-left transition hover:border-primary/60 ${
+                    source === item.provider ? 'border-primary bg-primary/10' : 'border-border bg-secondary/40'
+                  }`}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Origem</p>
+                  <p className="mt-1 text-sm font-semibold text-card-foreground">{item.label}</p>
+                  <p className="text-xs text-muted-foreground">{item.count} registros</p>
+                </button>
+              ))}
+            </div>
+
+            <ConversationSearch value={search} onChange={setSearch} />
+            <ConversationList
+              tickets={filteredTickets}
+              selectedTicketId={selectedTicket?.id}
+              onSelect={(ticket) => setSelectedTicketId(ticket.id)}
             />
           </section>
 
-          <section className="rounded-lg border border-border bg-card shadow-panel">
+          <section className="min-w-0 rounded-lg border border-border bg-card shadow-panel">
             {selectedTicket ? (
               <>
                 <div className="border-b border-border p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{selectedTicket.id}</p>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                        {getTicketProviderLabel(selectedTicket)} / {getTicketDisplayId(selectedTicket)}
+                      </p>
                       <h3 className="mt-2 text-xl font-semibold text-card-foreground">{selectedTicket.customerName}</h3>
-                      <p className="text-sm text-muted-foreground">{selectedTicket.customerContact}</p>
+                      <p className="break-words text-sm text-muted-foreground">{selectedTicket.customerContact}</p>
                     </div>
                     <StatusBadge status={selectedTicket.status} />
                   </div>
@@ -183,6 +227,7 @@ export default function ConversasPage() {
                   <div className="mt-4 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
                     <span>Fila: <strong className="text-card-foreground">{selectedTicket.queue}</strong></span>
                     <span>Atendente: <strong className="text-card-foreground">{selectedTicket.agent}</strong></span>
+                    <span>Origem: <strong className="text-card-foreground">{getTicketProviderLabel(selectedTicket)}</strong></span>
                     <span>Canal: <strong className="text-card-foreground">{selectedTicket.channel}</strong></span>
                     <span>Grupo: <strong className="text-card-foreground">{selectedTicket.group}</strong></span>
                     <span>Ultima msg: <strong className="text-card-foreground">{formatDateTime(selectedTicket.lastMessageAt)}</strong></span>
@@ -223,6 +268,98 @@ export default function ConversasPage() {
         onClose={() => setDetailTicket(null)}
       />
     </DashboardShell>
+  );
+}
+
+function ConversationSearch({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="mb-3 flex h-11 items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm text-muted-foreground">
+      <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Buscar cliente, telefone, ticket, origem, tag ou assunto"
+        className="h-full min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
+      />
+    </label>
+  );
+}
+
+function ConversationList({
+  tickets,
+  selectedTicketId,
+  onSelect,
+}: {
+  tickets: DemoTicket[];
+  selectedTicketId?: string;
+  onSelect: (ticket: DemoTicket) => void;
+}) {
+  if (tickets.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-border bg-secondary/40 p-6 text-sm text-muted-foreground">
+        Nenhuma conversa encontrada com os filtros atuais.
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-[700px] space-y-3 overflow-y-auto pr-1">
+      {tickets.map((ticket) => {
+        const selected = ticket.id === selectedTicketId;
+
+        return (
+          <button
+            key={ticket.id}
+            type="button"
+            onClick={() => onSelect(ticket)}
+            className={`w-full rounded-lg border p-4 text-left transition hover:border-primary/60 hover:bg-primary/5 ${
+              selected ? 'border-primary bg-primary/10' : 'border-border bg-background'
+            }`}
+          >
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+                  {getTicketProviderLabel(ticket)} / {getTicketDisplayId(ticket)}
+                </p>
+                <h4 className="mt-1 break-words text-base font-semibold text-card-foreground">{ticket.customerName}</h4>
+                <p className="break-words text-xs text-muted-foreground">{ticket.customerContact}</p>
+              </div>
+              <StatusBadge status={ticket.status} className="shrink-0" />
+            </div>
+
+            <p className="mt-3 break-words text-sm leading-5 text-muted-foreground">{ticket.subject}</p>
+
+            <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+              <span className="min-w-0 break-words">
+                Fila: <strong className="text-card-foreground">{ticket.queue}</strong>
+              </span>
+              <span className="min-w-0 break-words">
+                Atendente: <strong className="text-card-foreground">{ticket.agent}</strong>
+              </span>
+              <span>
+                Canal: <strong className="text-card-foreground">{ticket.channel}</strong>
+              </span>
+              <span>
+                Ultima msg: <strong className="text-card-foreground">{formatDateTime(ticket.lastMessageAt)}</strong>
+              </span>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <SentimentBadge sentiment={ticket.sentiment} />
+              <RiskBadge risk={ticket.risk} />
+              <span className="rounded-md border border-warning/30 bg-warning/10 px-2 py-1 text-xs font-semibold text-warning">
+                {formatRatingLabel(ticket.rating)}
+              </span>
+              {ticket.tags.slice(0, 4).map((ticketTag) => (
+                <span key={ticketTag} className="rounded-md border border-border bg-secondary px-2 py-1 text-xs text-muted-foreground">
+                  {ticketTag}
+                </span>
+              ))}
+            </div>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -268,7 +405,23 @@ function filterValueLabel(value: string) {
     PENDING: 'Pendente',
     CLOSED: 'Fechado',
     CANCELED: 'Cancelado',
+    BLIP: 'BLiP',
+    GLPI: 'GLPI',
+    TEAMS_PHONE: 'Teams Phone',
+    UNKNOWN: 'Nao informado',
   };
 
   return labels[value] ?? value;
+}
+
+function providerFilterLabel(value: string) {
+  return filterValueLabel(value);
+}
+
+function normalizeSearch(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
 }

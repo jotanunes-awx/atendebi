@@ -1,6 +1,9 @@
 export type TicketHistoryItem = {
   id: string;
   internalId?: string;
+  displayId?: string;
+  provider?: string;
+  providerLabel?: string;
   customerName: string;
   customerContact: string;
   queue: string;
@@ -32,6 +35,9 @@ export type ConversationMessage = {
   senderName: string;
   senderRole: string;
   content: string;
+  rawContent?: string;
+  contentLabel?: string;
+  isStructured?: boolean;
   sentAt: string;
   contentType: string;
 };
