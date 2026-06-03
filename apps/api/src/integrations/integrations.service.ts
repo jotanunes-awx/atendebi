@@ -60,6 +60,12 @@ type BlipContactPayload = Record<string, unknown>;
 
 type BlipThreadMessagePayload = Record<string, unknown>;
 
+type BlipThreadIdentityCandidate = {
+  identity: string;
+  getFromOriginator: boolean;
+  source: string;
+};
+
 @Injectable()
 export class IntegrationsService {
   constructor(
@@ -506,23 +512,42 @@ export class IntegrationsService {
 
       if (syncOptions.includeThreads) {
         for (const contactPayload of contacts) {
-          const identity = extractBlipContactIdentity(contactPayload);
+          const identityCandidates = extractBlipThreadIdentityCandidates(contactPayload);
 
-          if (!identity) {
+          if (identityCandidates.length === 0) {
             skipped += 1;
             continue;
           }
 
-          try {
-            const messages = await this.fetchBlipThreadMessages(identity, syncOptions);
+          let importedFromThread = false;
 
-            for (const messagePayload of messages) {
-              const imported = await this.upsertBlipMessage(tenantId, messagePayload, contactPayload, 'thread');
-              importedMessages += imported ? 1 : 0;
-              skipped += imported ? 0 : 1;
+          for (const candidate of identityCandidates) {
+            try {
+              const messages = await this.fetchBlipThreadMessages(candidate, syncOptions);
+
+              if (messages.length === 0) {
+                continue;
+              }
+
+              for (const messagePayload of messages) {
+                const imported = await this.upsertBlipMessage(tenantId, messagePayload, contactPayload, 'thread');
+                importedMessages += imported ? 1 : 0;
+                skipped += imported ? 0 : 1;
+              }
+
+              importedFromThread = true;
+              break;
+            } catch (error) {
+              warnings.push(
+                `Thread ${candidate.identity} (${candidate.source}): ${
+                  error instanceof Error ? error.message : 'erro desconhecido'
+                }`,
+              );
             }
-          } catch (error) {
-            warnings.push(`Thread ${identity}: ${error instanceof Error ? error.message : 'erro desconhecido'}`);
+          }
+
+          if (!importedFromThread) {
+            skipped += 1;
           }
         }
       }
@@ -643,9 +668,22 @@ export class IntegrationsService {
     return syncOptions.contactLimit ? contacts.slice(0, syncOptions.contactLimit) : contacts;
   }
 
-  private async fetchBlipThreadMessages(identity: string, syncOptions: BlipSyncOptions): Promise<BlipThreadMessagePayload[]> {
+  private async fetchBlipThreadMessages(
+    candidate: BlipThreadIdentityCandidate,
+    syncOptions: BlipSyncOptions,
+  ): Promise<BlipThreadMessagePayload[]> {
     const take = syncOptions.threadMessagesPerContact;
-    const command = await this.sendBlipCommand('postmaster@msging.net', 'get', `/threads/${encodeURIComponent(identity)}?$take=${take}`);
+    const params = [`$take=${take}`, 'refreshExpiredMedia=true'];
+
+    if (candidate.getFromOriginator) {
+      params.push('getFromOriginator=true');
+    }
+
+    const command = await this.sendBlipCommand(
+      'postmaster@msging.net',
+      'get',
+      `/threads/${encodeURIComponent(candidate.identity)}?${params.join('&')}`,
+    );
 
     return extractBlipItems(command) as BlipThreadMessagePayload[];
   }
@@ -774,7 +812,9 @@ export class IntegrationsService {
     const message = unwrapBlipMessage(messagePayload);
     const from = readFirstString(message, ['from', 'message.from', 'resource.from']);
     const to = readFirstString(message, ['to', 'message.to', 'resource.to']);
-    const fallbackIdentity = contactPayload ? extractBlipContactIdentity(contactPayload) : undefined;
+    const fallbackIdentity = contactPayload
+      ? extractBlipTunnelOriginator(contactPayload) ?? extractBlipContactIdentity(contactPayload)
+      : undefined;
     const contactIdentity = extractBlipConversationIdentity(message, fallbackIdentity, from, to);
 
     if (!contactIdentity) {
@@ -2223,6 +2263,42 @@ function extractBlipContactIdentity(payload: Record<string, unknown>) {
   return identity ? truncate(identity, 180) : undefined;
 }
 
+function extractBlipTunnelOriginator(payload: Record<string, unknown>) {
+  const originator = readFirstString(payload, [
+    'extras.tunnel.originator',
+    'metadata.tunnel.originator',
+    'resource.extras.tunnel.originator',
+  ]);
+
+  return originator ? truncate(originator, 180) : undefined;
+}
+
+function extractBlipThreadIdentityCandidates(payload: Record<string, unknown>): BlipThreadIdentityCandidate[] {
+  const identity = extractBlipContactIdentity(payload);
+  const originator = extractBlipTunnelOriginator(payload);
+  const candidates: BlipThreadIdentityCandidate[] = [];
+
+  if (identity) {
+    candidates.push({
+      identity,
+      getFromOriginator: identity.toLowerCase().includes('@tunnel.msging.net'),
+      source: 'contact.identity',
+    });
+  }
+
+  if (originator && originator !== identity) {
+    candidates.push({
+      identity: originator,
+      getFromOriginator: false,
+      source: 'extras.tunnel.originator',
+    });
+  }
+
+  return candidates.filter(
+    (candidate, index, all) => all.findIndex((item) => item.identity === candidate.identity) === index,
+  );
+}
+
 function extractBlipConversationIdentity(
   payload: Record<string, unknown>,
   fallbackIdentity?: string,
@@ -2270,7 +2346,8 @@ function extractBlipPhone(payload: Record<string, unknown> | undefined, identity
     return undefined;
   }
 
-  const [prefix] = identity.split('@');
+  const identityWithPhone = payload ? extractBlipTunnelOriginator(payload) ?? identity : identity;
+  const [prefix] = identityWithPhone.split('@');
   const digits = prefix.replace(/\D/g, '');
 
   return digits.length >= 8 ? truncate(`+${digits}`, 40) : undefined;
