@@ -723,15 +723,17 @@ export class IntegrationsService {
     }
 
     const rawEvent = await this.upsertBlipRawEvent(tenantId, `blip-contact-${identity}`, 'blip.contact.backfill', contactPayload);
-    const name = extractBlipContactName(contactPayload, identity);
+    const name = truncate(extractBlipContactName(contactPayload, identity), 180);
     const phone = extractBlipPhone(contactPayload, identity);
-    const email = readFirstString(contactPayload, ['email', 'extras.email']);
+    const rawEmail = readFirstString(contactPayload, ['email', 'extras.email']);
+    const email = rawEmail ? truncate(rawEmail, 180) : undefined;
+    const externalId = truncate(identity, 180);
 
     await this.prisma.contact.upsert({
       where: {
         tenantId_externalId: {
           tenantId,
-          externalId: truncate(identity, 180),
+          externalId,
         },
       },
       update: {
@@ -747,7 +749,7 @@ export class IntegrationsService {
       },
       create: {
         tenantId,
-        externalId: truncate(identity, 180),
+        externalId,
         name,
         phone,
         email,
@@ -797,18 +799,28 @@ export class IntegrationsService {
     const channel = inferBlipChannel(message, contactIdentity);
     const direction = inferBlipDirection(message, from, to);
     const sentAt = extractBlipDate(message, rawEvent.receivedAt);
-    const queueName = readFirstString(message, ['queue.name', 'resource.queue.name', 'metadata.queue', 'extras.queue']) ?? `BLiP - ${channel}`;
+    const queueName = truncate(
+      readFirstString(message, ['queue.name', 'resource.queue.name', 'metadata.queue', 'extras.queue']) ?? `BLiP - ${channel}`,
+      160,
+    );
     const agentName =
-      readFirstString(message, ['agent.name', 'attendant.name', 'operator.name', 'resource.agent.name', 'metadata.agent']) ??
-      (direction === MessageDirection.OUTBOUND ? 'BLiP Bot / Atendente' : undefined);
+      truncate(
+        readFirstString(message, ['agent.name', 'attendant.name', 'operator.name', 'resource.agent.name', 'metadata.agent']) ??
+          (direction === MessageDirection.OUTBOUND ? 'BLiP Bot / Atendente' : ''),
+        160,
+      ) || undefined;
     const contactName =
-      readFirstString(message, ['contact.name', 'customer.name', 'resource.customer.name']) ??
-      (contactPayload ? extractBlipContactName(contactPayload, contactIdentity) : undefined);
+      truncate(
+        readFirstString(message, ['contact.name', 'customer.name', 'resource.customer.name']) ??
+          (contactPayload ? extractBlipContactName(contactPayload, contactIdentity) : 'Cliente BLiP'),
+        180,
+      ) || undefined;
+    const contactExternalId = truncate(contactIdentity, 180);
     const contact = await this.prisma.contact.upsert({
       where: {
         tenantId_externalId: {
           tenantId,
-          externalId: truncate(contactIdentity, 180),
+          externalId: contactExternalId,
         },
       },
       update: {
@@ -822,7 +834,7 @@ export class IntegrationsService {
       },
       create: {
         tenantId,
-        externalId: truncate(contactIdentity, 180),
+        externalId: contactExternalId,
         name: contactName,
         phone: extractBlipPhone(contactPayload ?? message, contactIdentity),
         metadata: {
@@ -937,9 +949,9 @@ export class IntegrationsService {
         agentId: agent?.id ?? null,
         rawEventId: rawEvent.id,
         direction,
-        senderName: inferBlipSenderName(direction, contact.name, agentName),
+        senderName: truncate(inferBlipSenderName(direction, contact.name, agentName), 160),
         content,
-        contentType: readFirstString(message, ['content.type', 'type', 'message.type']) ?? 'text/plain',
+        contentType: truncate(readFirstString(message, ['content.type', 'type', 'message.type']) ?? 'text/plain', 80),
         sentAt,
       },
       create: {
@@ -950,9 +962,9 @@ export class IntegrationsService {
         rawEventId: rawEvent.id,
         externalId: messageExternalId,
         direction,
-        senderName: inferBlipSenderName(direction, contact.name, agentName),
+        senderName: truncate(inferBlipSenderName(direction, contact.name, agentName), 160),
         content,
-        contentType: readFirstString(message, ['content.type', 'type', 'message.type']) ?? 'text/plain',
+        contentType: truncate(readFirstString(message, ['content.type', 'type', 'message.type']) ?? 'text/plain', 80),
         sentAt,
         metadata: {
           source: 'BLIP',
@@ -3130,7 +3142,15 @@ function stripHtml(value: string) {
 }
 
 function truncate(value: string, maxLength: number) {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1).trim()}...` : value;
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  if (maxLength <= 3) {
+    return value.slice(0, maxLength);
+  }
+
+  return `${value.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
 function maskUrl(value: string) {
