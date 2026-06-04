@@ -1,6 +1,6 @@
 services:
   deps:
-    image: node:22-alpine
+    image: node:22.12.0-bookworm-slim
     container_name: atendebi-deps
     working_dir: /workspace
     command: sh -c "npm ci --include=dev --no-audit --no-fund && npm run db:generate"
@@ -8,6 +8,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-atendebi}:${POSTGRES_PASSWORD:-atendebi_dev_password}@postgres:5432/${POSTGRES_DB:-atendebi}?schema=public
       NPM_CONFIG_AUDIT: false
       NPM_CONFIG_FUND: false
+      NPM_CONFIG_PROGRESS: false
       NPM_CONFIG_CACHE: /npm-cache
     volumes:
       - .:/workspace
@@ -19,7 +20,7 @@ services:
         condition: service_healthy
 
   api:
-    image: node:22-alpine
+    image: node:22.12.0-bookworm-slim
     container_name: atendebi-api
     restart: unless-stopped
     working_dir: /workspace
@@ -57,7 +58,7 @@ services:
       retries: 10
 
   web:
-    image: node:22-alpine
+    image: node:22.12.0-bookworm-slim
     container_name: atendebi-web
     restart: unless-stopped
     working_dir: /workspace
