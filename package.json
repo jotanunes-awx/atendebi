@@ -9,6 +9,11 @@
   ],
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev -w @atendebi/api\" \"npm run dev -w @atendebi/web\"",
+    "docker:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up",
+    "docker:dev:detached": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d",
+    "docker:logs": "docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f api web",
+    "docker:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
+    "docker:seed": "docker compose -f docker-compose.yml -f docker-compose.dev.yml exec api npm run db:seed",
     "build": "npm run build -ws",
     "lint": "npm run lint -ws --if-present",
     "typecheck": "npm run typecheck -ws --if-present",

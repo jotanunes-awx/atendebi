@@ -66,6 +66,59 @@ npm run dev
 - Swagger/OpenAPI: http://localhost:3333/docs
 - Healthcheck: http://localhost:3333/health
 
+## Rodar tudo com Docker em desenvolvimento
+
+Para nao precisar abrir um terminal para API e outro para frontend, use o Compose de desenvolvimento. Ele sobe PostgreSQL, Redis, API NestJS e Web Next.js juntos.
+
+1. Garanta que os arquivos `.env`, `apps/api/.env` e `apps/web/.env.local` existem.
+
+2. Suba tudo:
+
+```bash
+npm run docker:dev
+```
+
+Ou em segundo plano:
+
+```bash
+npm run docker:dev:detached
+```
+
+3. Acompanhe os logs da API e do frontend:
+
+```bash
+npm run docker:logs
+```
+
+4. Rode o seed dentro do container da API:
+
+```bash
+npm run docker:seed
+```
+
+5. Pare os containers:
+
+```bash
+npm run docker:down
+```
+
+O modo Docker usa hot reload. Quando voce alterar arquivos em `apps/api/src` ou `apps/web/src`, API e frontend recompilam automaticamente.
+
+Se a porta `3000` ja estiver ocupada no servidor, defina no `.env`:
+
+```env
+WEB_PORT=3001
+NEXT_PUBLIC_API_URL=http://192.168.79.63:3333
+NEXT_ALLOWED_DEV_ORIGINS=192.168.79.63
+CORS_ORIGIN=http://192.168.79.63:3001,http://localhost:3001,http://localhost:3000
+```
+
+Depois suba novamente:
+
+```bash
+npm run docker:dev:detached
+```
+
 ## Acesso por IP em servidor de teste
 
 Quando o Next.js roda em modo desenvolvimento e o acesso vem por outro host/IP, configure o IP do servidor em `apps/web/.env.local`:

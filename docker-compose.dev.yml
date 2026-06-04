@@ -1,0 +1,88 @@
+services:
+  deps:
+    image: node:22-alpine
+    container_name: atendebi-deps
+    working_dir: /workspace
+    command: sh -c "npm install && npm run db:generate"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-atendebi}:${POSTGRES_PASSWORD:-atendebi_dev_password}@postgres:5432/${POSTGRES_DB:-atendebi}?schema=public
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/node_modules
+      - web-next:/workspace/apps/web/.next
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: node:22-alpine
+    container_name: atendebi-api
+    restart: unless-stopped
+    working_dir: /workspace
+    command: sh -c "npm run db:generate && npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run dev -w @atendebi/api"
+    env_file:
+      - .env
+      - apps/api/.env
+    environment:
+      PORT: 3333
+      API_PORT: 3333
+      DATABASE_URL: postgresql://${POSTGRES_USER:-atendebi}:${POSTGRES_PASSWORD:-atendebi_dev_password}@postgres:5432/${POSTGRES_DB:-atendebi}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001}
+      CHOKIDAR_USEPOLLING: true
+      TSC_WATCHFILE: PriorityPollingInterval
+      TSC_WATCHDIRECTORY: RecursiveDirectoryUsingFsWatchFile
+    ports:
+      - "${API_PORT:-3333}:3333"
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/node_modules
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3333/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  web:
+    image: node:22-alpine
+    container_name: atendebi-web
+    restart: unless-stopped
+    working_dir: /workspace
+    command: sh -c "npm run dev -w @atendebi/web -- --hostname 0.0.0.0 --port 3000"
+    environment:
+      NEXT_TELEMETRY_DISABLED: 1
+      WATCHPACK_POLLING: true
+      CHOKIDAR_USEPOLLING: true
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3333}
+      NEXT_ALLOWED_DEV_ORIGINS: ${NEXT_ALLOWED_DEV_ORIGINS:-localhost,127.0.0.1}
+      NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-mock}
+      NEXT_PUBLIC_ENTRA_TENANT_ID: ${NEXT_PUBLIC_ENTRA_TENANT_ID:-00000000-0000-0000-0000-000000000000}
+      NEXT_PUBLIC_ENTRA_CLIENT_ID: ${NEXT_PUBLIC_ENTRA_CLIENT_ID:-00000000-0000-0000-0000-000000000000}
+      NEXT_PUBLIC_ENTRA_REDIRECT_URI: ${NEXT_PUBLIC_ENTRA_REDIRECT_URI:-http://localhost:3000}
+      NEXT_PUBLIC_ENTRA_API_SCOPE: ${NEXT_PUBLIC_ENTRA_API_SCOPE:-api://atendebi-local/access_as_user}
+      NEXT_PUBLIC_ATENDEBI_TENANT_KEY: ${NEXT_PUBLIC_ATENDEBI_TENANT_KEY:-local-tenant}
+      NEXT_PUBLIC_ATENDEBI_TENANT_NAME: ${NEXT_PUBLIC_ATENDEBI_TENANT_NAME:-Jotanunes}
+      NEXT_PUBLIC_ATENDEBI_DEFAULT_ROLE: ${NEXT_PUBLIC_ATENDEBI_DEFAULT_ROLE:-ATENDEBI_ADMIN}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/node_modules
+      - web-next:/workspace/apps/web/.next
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+
+volumes:
+  node-modules:
+  web-next:
