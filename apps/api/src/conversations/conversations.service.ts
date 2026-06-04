@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
 import { isUuid } from '../common/data/id-filter';
-import { presentMessage, presentTicket, ticketInclude } from '../common/data/ticket-presenter';
+import { presentMessage, presentTicket, ticketConversationInclude } from '../common/data/ticket-presenter';
 
 @Injectable()
 export class ConversationsService {
@@ -23,7 +23,7 @@ export class ConversationsService {
         tenantId,
         OR: isUuid(ticketId) ? [{ id: ticketId }, { externalId: ticketId }] : [{ externalId: ticketId }],
       },
-      include: ticketInclude,
+      include: ticketConversationInclude,
     });
 
     if (!ticket) {

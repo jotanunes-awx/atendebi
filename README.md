@@ -388,15 +388,33 @@ GLPI_BASE_URL=https://glpi.suaempresa.com
 GLPI_APP_TOKEN=seu-app-token
 GLPI_USER_TOKEN=seu-user-token
 GLPI_SYNC_ENABLED=false
-GLPI_SYNC_LIMIT=0
-GLPI_SYNC_PAGE_SIZE=100
-GLPI_SYNC_MAX_PAGES=1000
-GLPI_SYNC_ACTIVE_ONLY=false
+GLPI_SYNC_LIMIT=500
+GLPI_SYNC_PAGE_SIZE=50
+GLPI_SYNC_MAX_PAGES=10
+GLPI_SYNC_ACTIVE_ONLY=true
 GLPI_SYNC_STATUSES=
-GLPI_SYNC_DAYS=0
+GLPI_SYNC_DAYS=30
+GLPI_SYNC_FULL_HISTORY=false
+GLPI_SYNC_REQUEST_DELAY_MS=250
+GLPI_SYNC_HYDRATE_DETAILS=true
+GLPI_SYNC_DETAIL_LIMIT=150
+GLPI_REQUEST_TIMEOUT_MS=15000
 ```
 
-Por padrao o sincronismo percorre paginas da API do GLPI e tenta guardar todo o historico no banco do AtendeBI. `GLPI_SYNC_LIMIT=0` significa sem limite de quantidade; use um numero positivo apenas se quiser limitar um teste. O dashboard continua abrindo em `Ativos agora`, entao chamados antigos ficam disponiveis para busca/auditoria sem poluir a visao operacional. Se quiser sincronizar apenas chamados ativos, use `GLPI_SYNC_ACTIVE_ONLY=true` e informe `GLPI_SYNC_STATUSES=1,2,3,4,7`.
+Por padrao o sincronismo GLPI roda em modo seguro incremental: busca lotes menores, prioriza chamados ativos/recentes, pausa entre paginas e limita quantos chamados terao detalhes extras de solicitante, tecnico, grupo, entidade e categoria. Isso evita sobrecarregar o servidor GLPI durante o expediente.
+
+Para importar os 16 mil chamados historicos, faca isso como backfill controlado fora do horario comercial. Nesse caso, ajuste temporariamente:
+
+```env
+GLPI_SYNC_FULL_HISTORY=true
+GLPI_SYNC_LIMIT=0
+GLPI_SYNC_MAX_PAGES=1000
+GLPI_SYNC_HYDRATE_DETAILS=false
+GLPI_SYNC_REQUEST_DELAY_MS=500
+GLPI_REQUEST_TIMEOUT_MS=30000
+```
+
+Depois volte para `GLPI_SYNC_FULL_HISTORY=false`. O dashboard continua abrindo em `Ativos agora`; chamados antigos devem ficar disponiveis para busca/auditoria sem poluir a visao operacional.
 
 Depois rode:
 

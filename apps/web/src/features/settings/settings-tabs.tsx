@@ -281,7 +281,7 @@ function IntegrationProviderCard({
       <div className="mt-4">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Configuracao</p>
         <div className="mt-2 grid gap-2">
-          {Object.entries(integration.settingsPreview).slice(0, 4).map(([key, value]) => (
+          {Object.entries(integration.settingsPreview).slice(0, integration.provider === 'GLPI' ? 8 : 4).map(([key, value]) => (
             <SmallConfigRow key={key} label={prettyKey(key)} value={formatPreviewValue(value)} />
           ))}
         </div>
@@ -328,7 +328,7 @@ function IntegrationProviderCard({
         </Button>
         <Button variant="outline" size="sm" type="button" onClick={() => onSyncIntegration(integration.provider)} disabled={syncing}>
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
-          {syncing ? 'Sincronizando' : integration.provider === 'TEAMS_PHONE' ? 'Preparar sync' : 'Sincronizar'}
+          {syncing ? 'Sincronizando' : integration.provider === 'TEAMS_PHONE' ? 'Preparar sync' : integration.provider === 'GLPI' ? 'Sync seguro' : 'Sincronizar'}
         </Button>
       </div>
     </article>
@@ -352,11 +352,21 @@ function IntegrationResultBox({ result }: { result: IntegrationTestResult | Inte
     <div className={`mt-4 rounded-md border p-3 ${ok ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}`}>
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{'checkedAt' in result ? 'Resultado do teste' : 'Resultado do sync'}</p>
       <p className="mt-2 text-sm leading-6 text-card-foreground">{result.message}</p>
-      {'contacts' in result || 'messages' in result ? (
+      {'imported' in result || 'contacts' in result || 'messages' in result ? (
         <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-card-foreground">
+          {'imported' in result && typeof result.imported === 'number' ? <span>{result.imported} registros</span> : null}
           {'contacts' in result && typeof result.contacts === 'number' ? <span>{result.contacts} contatos</span> : null}
           {'messages' in result && typeof result.messages === 'number' ? <span>{result.messages} mensagens</span> : null}
           {'skipped' in result && typeof result.skipped === 'number' ? <span>{result.skipped} ignorados</span> : null}
+        </div>
+      ) : null}
+      {'options' in result && result.options ? (
+        <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+          {Object.entries(result.options).slice(0, 5).map(([key, value]) => (
+            <span key={key} className="rounded-md border border-border bg-card px-2 py-1">
+              {prettyKey(key)}: <strong className="text-card-foreground">{formatPreviewValue(value)}</strong>
+            </span>
+          ))}
         </div>
       ) : null}
       {'warnings' in result && Array.isArray(result.warnings) && result.warnings.length > 0 ? (
@@ -446,6 +456,21 @@ function prettyKey(value: string) {
     authMethod: 'Autenticacao',
     syncStrategy: 'Sincronismo',
     syncEnabled: 'Sync ativo',
+    syncMode: 'Modo de sync',
+    syncLimit: 'Limite por sync',
+    syncPageSize: 'Tamanho do lote',
+    syncMaxPages: 'Max. paginas',
+    syncActiveOnly: 'Somente ativos',
+    syncDays: 'Janela recente',
+    requestDelayMs: 'Pausa entre lotes',
+    requestTimeoutMs: 'Timeout GLPI',
+    hydrateDetails: 'Detalhar nomes',
+    detailLimit: 'Limite de detalhes',
+    pageSize: 'Tamanho do lote',
+    maxPages: 'Max. paginas',
+    limit: 'Limite',
+    activeOnly: 'Somente ativos',
+    fullHistory: 'Historico completo',
     tenantId: 'Tenant ID',
     clientId: 'Client ID',
     permissions: 'Permissoes',

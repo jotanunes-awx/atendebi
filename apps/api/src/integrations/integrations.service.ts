@@ -29,6 +29,10 @@ type GlpiSyncOptions = {
   syncDays: number;
   activeOnly: boolean;
   statuses: Set<number>;
+  fullHistory: boolean;
+  requestDelayMs: number;
+  hydrateDetails: boolean;
+  detailLimit: number;
 };
 
 type TeamsSyncOptions = {
@@ -405,6 +409,11 @@ export class IntegrationsService {
         activeOnly: syncOptions.activeOnly,
         syncDays: syncOptions.syncDays,
         activeStatuses: Array.from(syncOptions.statuses).join(', '),
+        syncMode: syncOptions.fullHistory ? 'Historico completo' : 'Seguro incremental',
+        requestDelayMs: syncOptions.requestDelayMs,
+        requestTimeoutMs: this.getGlpiRequestTimeoutMs(),
+        hydrateDetails: syncOptions.hydrateDetails,
+        detailLimit: syncOptions.detailLimit,
       };
     }
 
@@ -471,19 +480,21 @@ export class IntegrationsService {
     }
 
     try {
-      const command = await this.sendBlipCommand('postmaster@crm.msging.net', 'get', '/contacts?$skip=0&$take=1');
-      const contacts = extractBlipItems(command);
+      const keyIdentity = extractBlipKeyIdentity(hasApiKey);
+
+      await this.sendBlipCommand('postmaster@msging.net', 'get', '/profile/greeting');
 
       return {
         provider,
         checkedAt,
         ok: true,
         status: 'ready',
-        message: 'Conexao com BLiP validada. O proximo passo e executar o sincronismo de contatos e conversas recentes.',
+        message: 'Conexao com BLiP validada sem consultar contatos, tickets ou mensagens.',
         details: [
           { item: 'BLIP_BOT_KEY configurada apenas no backend', status: 'ok' },
-          { item: 'Commands API respondeu /contacts', status: 'ok' },
-          { item: `${contacts.length} contato(s) retornado(s) no teste`, status: 'ok' },
+          { item: keyIdentity ? `Key identifica o bot ${keyIdentity}` : 'Identificador do bot nao foi lido da key', status: keyIdentity ? 'ok' : 'warning' },
+          { item: 'Commands API respondeu /profile/greeting', status: 'ok' },
+          { item: 'Teste nao consultou /contacts, /tickets nem /messages', status: 'ok' },
         ],
       };
     } catch (error) {
@@ -1346,8 +1357,10 @@ export class IntegrationsService {
       let imported = 0;
       let skipped = 0;
 
-      for (const ticket of tickets) {
-        const normalized = await this.upsertGlpiTicket(tenantId, ticket, lookupContext);
+      for (const [index, ticket] of tickets.entries()) {
+        const normalized = await this.upsertGlpiTicket(tenantId, ticket, lookupContext, {
+          hydrateDetails: syncOptions.hydrateDetails && index < syncOptions.detailLimit,
+        });
 
         if (normalized) {
           imported += 1;
@@ -1376,6 +1389,10 @@ export class IntegrationsService {
             syncMaxPages: syncOptions.maxPages,
             activeOnly: syncOptions.activeOnly,
             activeStatuses: Array.from(syncOptions.statuses),
+            fullHistory: syncOptions.fullHistory,
+            requestDelayMs: syncOptions.requestDelayMs,
+            hydrateDetails: syncOptions.hydrateDetails,
+            detailLimit: syncOptions.detailLimit,
           },
         },
       });
@@ -1397,6 +1414,10 @@ export class IntegrationsService {
             syncMaxPages: syncOptions.maxPages,
             activeOnly: syncOptions.activeOnly,
             activeStatuses: Array.from(syncOptions.statuses),
+            fullHistory: syncOptions.fullHistory,
+            requestDelayMs: syncOptions.requestDelayMs,
+            hydrateDetails: syncOptions.hydrateDetails,
+            detailLimit: syncOptions.detailLimit,
           },
         },
       });
@@ -1408,6 +1429,23 @@ export class IntegrationsService {
         message: `Sincronismo GLPI concluido: ${imported} chamados importados ou atualizados no historico.`,
         imported,
         skipped,
+        options: {
+          mode: syncOptions.fullHistory ? 'full_history' : 'safe_incremental',
+          pageSize: syncOptions.pageSize,
+          maxPages: syncOptions.maxPages,
+          limit: syncOptions.limit ?? 'all',
+          syncDays: syncOptions.syncDays,
+          activeOnly: syncOptions.activeOnly,
+          hydrateDetails: syncOptions.hydrateDetails,
+          detailLimit: syncOptions.detailLimit,
+          requestDelayMs: syncOptions.requestDelayMs,
+        },
+        warnings: syncOptions.fullHistory
+          ? ['Backfill completo habilitado. Execute preferencialmente fora do horario comercial.']
+          : [
+              'Sync seguro aplicado: para nao sobrecarregar o GLPI, este botao limita paginas e prioriza chamados ativos/recentes.',
+              'Para importar todo o historico, use GLPI_SYNC_FULL_HISTORY=true em uma janela controlada.',
+            ],
       };
     } finally {
       await this.closeGlpiSession(session.sessionToken).catch(() => undefined);
@@ -1416,13 +1454,17 @@ export class IntegrationsService {
 
   private async openGlpiSession() {
     const { apiBaseUrl, appToken, userToken } = this.getGlpiConfig();
-    const response = await fetch(`${apiBaseUrl}/initSession`, {
-      method: 'GET',
-      headers: {
-        'App-Token': appToken,
-        Authorization: `user_token ${userToken}`,
+    const response = await fetchWithTimeout(
+      `${apiBaseUrl}/initSession`,
+      {
+        method: 'GET',
+        headers: {
+          'App-Token': appToken,
+          Authorization: `user_token ${userToken}`,
+        },
       },
-    });
+      this.getGlpiRequestTimeoutMs(),
+    );
 
     if (!response.ok) {
       throw new Error(`GLPI initSession falhou com status ${response.status}. Verifique URL, App Token e User Token.`);
@@ -1444,13 +1486,17 @@ export class IntegrationsService {
   private async closeGlpiSession(sessionToken: string) {
     const { apiBaseUrl, appToken } = this.getGlpiConfig();
 
-    await fetch(`${apiBaseUrl}/killSession`, {
-      method: 'GET',
-      headers: {
-        'App-Token': appToken,
-        'Session-Token': sessionToken,
+    await fetchWithTimeout(
+      `${apiBaseUrl}/killSession`,
+      {
+        method: 'GET',
+        headers: {
+          'App-Token': appToken,
+          'Session-Token': sessionToken,
+        },
       },
-    });
+      this.getGlpiRequestTimeoutMs(),
+    );
   }
 
   private async fetchGlpiTickets(sessionToken: string, syncOptions: GlpiSyncOptions): Promise<GlpiTicketPayload[]> {
@@ -1466,13 +1512,17 @@ export class IntegrationsService {
         order: 'DESC',
         expand_dropdowns: 'true',
       });
-      const response = await fetch(`${apiBaseUrl}/Ticket?${params.toString()}`, {
-        method: 'GET',
-        headers: {
-          'App-Token': appToken,
-          'Session-Token': sessionToken,
+      const response = await fetchWithTimeout(
+        `${apiBaseUrl}/Ticket?${params.toString()}`,
+        {
+          method: 'GET',
+          headers: {
+            'App-Token': appToken,
+            'Session-Token': sessionToken,
+          },
         },
-      });
+        this.getGlpiRequestTimeoutMs(),
+      );
 
       if (!response.ok) {
         throw new Error(`Nao foi possivel buscar chamados GLPI. Status ${response.status}.`);
@@ -1493,6 +1543,10 @@ export class IntegrationsService {
 
       if (pageRows.length < syncOptions.pageSize) {
         break;
+      }
+
+      if (syncOptions.requestDelayMs > 0) {
+        await sleep(syncOptions.requestDelayMs);
       }
     }
 
@@ -1551,13 +1605,17 @@ export class IntegrationsService {
     const { apiBaseUrl, appToken } = this.getGlpiConfig();
 
     try {
-      const response = await fetch(`${apiBaseUrl}/${path}`, {
-        method: 'GET',
-        headers: {
-          'App-Token': appToken,
-          'Session-Token': sessionToken,
+      const response = await fetchWithTimeout(
+        `${apiBaseUrl}/${path}`,
+        {
+          method: 'GET',
+          headers: {
+            'App-Token': appToken,
+            'Session-Token': sessionToken,
+          },
         },
-      });
+        this.getGlpiRequestTimeoutMs(),
+      );
 
       if (!response.ok) {
         return null;
@@ -1572,13 +1630,17 @@ export class IntegrationsService {
   }
 
   private getGlpiSyncOptions(): GlpiSyncOptions {
+    const fullHistory = this.configService.get<string>('GLPI_SYNC_FULL_HISTORY', 'false') === 'true';
     const rawLimit = Number(this.configService.get<string>('GLPI_SYNC_LIMIT', '0'));
-    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? clamp(rawLimit, 1, 100000) : null;
-    const pageSize = clamp(Number(this.configService.get<string>('GLPI_SYNC_PAGE_SIZE', '100')), 1, 200);
-    const maxPages = clamp(Number(this.configService.get<string>('GLPI_SYNC_MAX_PAGES', '1000')), 1, 10000);
-    const syncDays = clamp(Number(this.configService.get<string>('GLPI_SYNC_DAYS', '0')), 0, 3650);
-    const activeOnly = this.configService.get<string>('GLPI_SYNC_ACTIVE_ONLY', 'false') === 'true';
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? clamp(rawLimit, 1, 100000) : fullHistory ? null : 500;
+    const pageSize = clamp(Number(this.configService.get<string>('GLPI_SYNC_PAGE_SIZE', '50')), 1, fullHistory ? 200 : 100);
+    const maxPages = clamp(Number(this.configService.get<string>('GLPI_SYNC_MAX_PAGES', '10')), 1, fullHistory ? 10000 : 20);
+    const syncDays = clamp(Number(this.configService.get<string>('GLPI_SYNC_DAYS', fullHistory ? '0' : '30')), 0, 3650);
+    const activeOnly = fullHistory ? this.configService.get<string>('GLPI_SYNC_ACTIVE_ONLY', 'false') === 'true' : true;
     const statuses = parseNumberSet(this.configService.get<string>('GLPI_SYNC_STATUSES', ''));
+    const requestDelayMs = clamp(Number(this.configService.get<string>('GLPI_SYNC_REQUEST_DELAY_MS', '250')), 0, 5000);
+    const hydrateDetails = this.configService.get<string>('GLPI_SYNC_HYDRATE_DETAILS', 'true') !== 'false';
+    const detailLimit = clamp(Number(this.configService.get<string>('GLPI_SYNC_DETAIL_LIMIT', fullHistory ? '100' : '150')), 0, 5000);
 
     return {
       limit,
@@ -1587,10 +1649,23 @@ export class IntegrationsService {
       syncDays,
       activeOnly,
       statuses: statuses.size > 0 ? statuses : new Set([1, 2, 3, 4, 7]),
+      fullHistory,
+      requestDelayMs,
+      hydrateDetails,
+      detailLimit,
     };
   }
 
-  private async upsertGlpiTicket(tenantId: string, ticket: GlpiTicketPayload, context: GlpiLookupContext) {
+  private getGlpiRequestTimeoutMs() {
+    return clamp(Number(this.configService.get<string>('GLPI_REQUEST_TIMEOUT_MS', '15000')), 3000, 120000);
+  }
+
+  private async upsertGlpiTicket(
+    tenantId: string,
+    ticket: GlpiTicketPayload,
+    context: GlpiLookupContext,
+    options: { hydrateDetails: boolean },
+  ) {
     const glpiId = readUnknownString(ticket.id) ?? readUnknownString(ticket['2']);
 
     if (!glpiId) {
@@ -1613,19 +1688,19 @@ export class IntegrationsService {
       readUnknownString(ticket.users_id_assign) ??
       readUnknownString(ticket.users_id_tech) ??
       readUnknownString(ticket.users_id_lastupdater);
-    const ticketUsers = await this.fetchGlpiCollection(context, `Ticket/${glpiId}/Ticket_User`);
-    const ticketGroups = await this.fetchGlpiCollection(context, `Ticket/${glpiId}/Group_Ticket`);
+    const ticketUsers = options.hydrateDetails ? await this.fetchGlpiCollection(context, `Ticket/${glpiId}/Ticket_User`) : [];
+    const ticketGroups = options.hydrateDetails ? await this.fetchGlpiCollection(context, `Ticket/${glpiId}/Group_Ticket`) : [];
     const requesterId =
       findGlpiRelationId(ticketUsers, 1, 'users_id') ?? normalizeExternalId(rawRequester) ?? `ticket-${glpiId}`;
     const technicianId = findGlpiRelationId(ticketUsers, 2, 'users_id') ?? normalizeExternalId(rawTechnician);
     const groupId = findGlpiRelationId(ticketGroups, 2, 'groups_id') ?? findGlpiRelationId(ticketGroups, undefined, 'groups_id');
     const categoryId = normalizeExternalId(rawCategory);
     const entityId = normalizeExternalId(rawEntity);
-    const requesterRecord = await this.fetchGlpiItem(context, 'User', requesterId);
-    const technicianRecord = await this.fetchGlpiItem(context, 'User', technicianId);
-    const categoryRecord = await this.fetchGlpiItem(context, 'ITILCategory', categoryId);
-    const entityRecord = await this.fetchGlpiItem(context, 'Entity', entityId);
-    const groupRecord = await this.fetchGlpiItem(context, 'Group', groupId);
+    const requesterRecord = options.hydrateDetails ? await this.fetchGlpiItem(context, 'User', requesterId) : null;
+    const technicianRecord = options.hydrateDetails ? await this.fetchGlpiItem(context, 'User', technicianId) : null;
+    const categoryRecord = options.hydrateDetails ? await this.fetchGlpiItem(context, 'ITILCategory', categoryId) : null;
+    const entityRecord = options.hydrateDetails ? await this.fetchGlpiItem(context, 'Entity', entityId) : null;
+    const groupRecord = options.hydrateDetails ? await this.fetchGlpiItem(context, 'Group', groupId) : null;
     const requesterName = buildGlpiUserName(requesterRecord, rawRequester, requesterId, 'Solicitante');
     const technicianName = technicianId ? buildGlpiUserName(technicianRecord, rawTechnician, technicianId, 'Tecnico') : null;
     const categoryName = buildGlpiItemName(categoryRecord, rawCategory, categoryId, 'Categoria');
@@ -3032,6 +3107,29 @@ function firstConfiguredValue(...values: Array<string | undefined>) {
   return values.find((value) => hasConfiguredValue(value));
 }
 
+function extractBlipKeyIdentity(key?: string) {
+  const trimmed = key?.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const decoded = trimmed.includes(':') ? trimmed : Buffer.from(trimmed, 'base64').toString('utf8');
+    const separatorIndex = decoded.indexOf(':');
+
+    if (separatorIndex <= 0) {
+      return null;
+    }
+
+    const identity = decoded.slice(0, separatorIndex).trim();
+
+    return /^[a-z0-9_.-]{2,80}$/i.test(identity) ? identity : null;
+  } catch {
+    return null;
+  }
+}
+
 function readNumber(record: Record<string, unknown>, key: string) {
   const value = record[key];
 
@@ -3497,6 +3595,29 @@ function truncate(value: string, maxLength: number) {
   }
 
   return `${value.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Tempo limite ao chamar ${url} depois de ${timeoutMs}ms.`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function maskUrl(value: string) {

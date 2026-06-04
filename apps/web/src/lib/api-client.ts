@@ -256,6 +256,7 @@ export type IntegrationSyncResult = {
   contacts?: number;
   messages?: number;
   warnings?: string[];
+  options?: Record<string, string | number | boolean>;
   batches?: Array<{
     source: string;
     rows: number;

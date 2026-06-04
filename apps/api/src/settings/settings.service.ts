@@ -458,15 +458,24 @@ function integrationSettingsPreview(provider: IntegrationProvider, settings: Rec
   }
 
   if (provider === IntegrationProvider.GLPI) {
+    const fullHistory = configService.get<string>('GLPI_SYNC_FULL_HISTORY', 'false') === 'true';
+
     return {
       baseUrl: maskUrl(readString(settings, 'baseUrl', '') || configService.get<string>('GLPI_BASE_URL') || ''),
       apiPath: readString(settings, 'apiPath', '/apirest.php'),
       authMethod: 'App Token + User Token',
       syncStrategy: 'Polling incremental',
       syncEnabled: configService.get<string>('GLPI_SYNC_ENABLED', 'false') === 'true',
-      syncLimit: configService.get<string>('GLPI_SYNC_LIMIT', '0') === '0' ? 'Todo historico' : configService.get<string>('GLPI_SYNC_LIMIT'),
-      syncPageSize: configService.get<string>('GLPI_SYNC_PAGE_SIZE', '100'),
-      syncActiveOnly: configService.get<string>('GLPI_SYNC_ACTIVE_ONLY', 'false') === 'true',
+      syncMode: fullHistory ? 'Historico completo' : 'Seguro incremental',
+      syncLimit: configService.get<string>('GLPI_SYNC_LIMIT', fullHistory ? '0' : '500') === '0' && fullHistory ? 'Todo historico' : configService.get<string>('GLPI_SYNC_LIMIT', '500'),
+      syncPageSize: configService.get<string>('GLPI_SYNC_PAGE_SIZE', '50'),
+      syncMaxPages: configService.get<string>('GLPI_SYNC_MAX_PAGES', '10'),
+      syncActiveOnly: fullHistory ? configService.get<string>('GLPI_SYNC_ACTIVE_ONLY', 'false') === 'true' : true,
+      syncDays: configService.get<string>('GLPI_SYNC_DAYS', fullHistory ? '0' : '30'),
+      requestDelayMs: configService.get<string>('GLPI_SYNC_REQUEST_DELAY_MS', '250'),
+      requestTimeoutMs: configService.get<string>('GLPI_REQUEST_TIMEOUT_MS', '15000'),
+      hydrateDetails: configService.get<string>('GLPI_SYNC_HYDRATE_DETAILS', 'true') !== 'false',
+      detailLimit: configService.get<string>('GLPI_SYNC_DETAIL_LIMIT', fullHistory ? '100' : '150'),
     };
   }
 

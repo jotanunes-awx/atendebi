@@ -1,6 +1,6 @@
 import { MessageDirection, Prisma } from '@prisma/client';
 
-export const ticketInclude = {
+const ticketBaseInclude = {
   contact: true,
   queue: true,
   agent: true,
@@ -14,6 +14,18 @@ export const ticketInclude = {
     orderBy: { createdAt: 'desc' },
     take: 1,
   },
+} satisfies Prisma.TicketInclude;
+
+export const ticketInclude = {
+  ...ticketBaseInclude,
+  messages: {
+    orderBy: { sentAt: 'desc' },
+    take: 1,
+  },
+} satisfies Prisma.TicketInclude;
+
+export const ticketConversationInclude = {
+  ...ticketBaseInclude,
   messages: {
     orderBy: { sentAt: 'asc' },
   },
