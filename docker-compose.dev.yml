@@ -3,12 +3,16 @@ services:
     image: node:22-alpine
     container_name: atendebi-deps
     working_dir: /workspace
-    command: sh -c "npm install && npm run db:generate"
+    command: sh -c "npm ci --include=dev --no-audit --no-fund && npm run db:generate"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-atendebi}:${POSTGRES_PASSWORD:-atendebi_dev_password}@postgres:5432/${POSTGRES_DB:-atendebi}?schema=public
+      NPM_CONFIG_AUDIT: false
+      NPM_CONFIG_FUND: false
+      NPM_CONFIG_CACHE: /npm-cache
     volumes:
       - .:/workspace
       - node-modules:/workspace/node_modules
+      - npm-cache:/npm-cache
       - web-next:/workspace/apps/web/.next
     depends_on:
       postgres:
@@ -38,6 +42,7 @@ services:
     volumes:
       - .:/workspace
       - node-modules:/workspace/node_modules
+      - npm-cache:/npm-cache
     depends_on:
       deps:
         condition: service_completed_successfully
@@ -76,6 +81,7 @@ services:
     volumes:
       - .:/workspace
       - node-modules:/workspace/node_modules
+      - npm-cache:/npm-cache
       - web-next:/workspace/apps/web/.next
     depends_on:
       deps:
@@ -85,4 +91,5 @@ services:
 
 volumes:
   node-modules:
+  npm-cache:
   web-next:
