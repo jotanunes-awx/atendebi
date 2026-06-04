@@ -104,6 +104,37 @@ npm run docker:down
 
 O modo Docker usa hot reload. Quando voce alterar arquivos em `apps/api/src` ou `apps/web/src`, API e frontend recompilam automaticamente.
 
+### Alternativa recomendada para servidor Linux
+
+Se o servidor apresentar erro do npm dentro do container, use o compose de servidor. Ele usa o `node_modules` instalado no proprio host Linux e evita rodar `npm install` dentro do Docker.
+
+1. Instale dependencias no host uma vez:
+
+```bash
+npm install
+npm run db:generate
+```
+
+2. Suba API e frontend em Docker:
+
+```bash
+npm run docker:server:detached
+```
+
+3. Acompanhe logs:
+
+```bash
+npm run docker:server:logs
+```
+
+4. Pare:
+
+```bash
+npm run docker:server:down
+```
+
+Esse modo tambem tem hot reload, mas depende da pasta `node_modules` local do servidor.
+
 Se a porta `3000` ja estiver ocupada no servidor, defina no `.env`:
 
 ```env
