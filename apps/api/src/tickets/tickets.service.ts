@@ -5,6 +5,7 @@ import { isUuid } from '../common/data/id-filter';
 import { presentTicket, ticketInclude } from '../common/data/ticket-presenter';
 
 export type TicketFilters = {
+  provider?: string;
   status?: string;
   queue?: string;
   agent?: string;
@@ -86,6 +87,8 @@ function matchesFilters(ticket: PresentedTicket, filters: TicketFilters) {
     ticket.queue,
     ticket.agent,
     ticket.subject,
+    ticket.provider,
+    ticket.providerLabel,
     ticket.status,
     ticket.resolutionStatus,
     ticket.channel,
@@ -96,6 +99,7 @@ function matchesFilters(ticket: PresentedTicket, filters: TicketFilters) {
     .toLowerCase();
 
   return (
+    matchesProvider(ticket, filters.provider) &&
     (!filters.status || ticket.status === filters.status) &&
     (!filters.queue || ticket.queue === filters.queue) &&
     (!filters.agent || ticket.agent === filters.agent) &&
@@ -104,6 +108,19 @@ function matchesFilters(ticket: PresentedTicket, filters: TicketFilters) {
     (!search || haystack.includes(search)) &&
     matchesPeriod(ticket, filters.period, filters.activeOnly)
   );
+}
+
+function matchesProvider(ticket: PresentedTicket, providerFilter?: string) {
+  if (!providerFilter) {
+    return true;
+  }
+
+  const providers = providerFilter
+    .split(',')
+    .map((provider) => provider.trim().toUpperCase())
+    .filter(Boolean);
+
+  return providers.length === 0 || providers.includes(ticket.provider);
 }
 
 function matchesPeriod(ticket: PresentedTicket, period?: string, activeOnly?: string) {

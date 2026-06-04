@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserMenu } from '@/components/user-menu';
 import { useAuth } from '@/lib/auth';
+import { getUserExperience } from '@/lib/access-control';
 
 const navItems = [
   { label: 'Visao Geral', href: '/', icon: LayoutDashboard },
@@ -38,10 +39,12 @@ type DashboardShellProps = {
 
 export function DashboardShell({ children }: DashboardShellProps) {
   const pathname = usePathname();
-  const { isAuthenticated, isReady } = useAuth();
+  const { isAuthenticated, isReady, user } = useAuth();
+  const experience = getUserExperience(user);
+  const visibleNavItems = navItems.filter((item) => experience.visibleNav.includes(item.href));
 
   const activeLabel =
-    navItems.find((item) =>
+    visibleNavItems.find((item) =>
       item.href === '/' ? pathname === '/' : pathname?.startsWith(item.href),
     )?.label ?? 'Visao Geral';
 
@@ -52,12 +55,12 @@ export function DashboardShell({ children }: DashboardShellProps) {
           <div className="flex h-16 items-center justify-between px-5 md:h-20">
             <div>
               <p className="text-base font-semibold tracking-normal text-card-foreground">AtendeBI</p>
-              <p className="text-xs font-medium text-muted-foreground">Operacao conversacional</p>
+              <p className="text-xs font-medium text-muted-foreground">{experience.audienceLabel}</p>
             </div>
             <Bot className="h-5 w-5 text-primary" aria-hidden="true" />
           </div>
           <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:block md:space-y-1 md:overflow-visible md:pb-0">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive = item.href === '/' ? pathname === '/' : pathname?.startsWith(item.href);
               return (
                 <Link
@@ -81,7 +84,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
             <div>
               <h1 className="text-xl font-semibold tracking-normal text-card-foreground">{activeLabel}</h1>
               <p className="text-sm text-muted-foreground">
-                Hoje, {new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date())}
+                {experience.shortDescription}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

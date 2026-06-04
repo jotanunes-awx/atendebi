@@ -217,6 +217,8 @@ function matchesGenericFilters(ticket: PresentedTicket, filters: Record<string, 
     ticket.queue,
     ticket.agent,
     ticket.subject,
+    ticket.provider,
+    ticket.providerLabel,
     ticket.channel,
     ticket.group,
     ticket.status,
@@ -227,6 +229,7 @@ function matchesGenericFilters(ticket: PresentedTicket, filters: Record<string, 
     .toLowerCase();
 
   return (
+    matchesProvider(ticket, filters.provider) &&
     (!filters.queue || ticket.queue === filters.queue) &&
     (!filters.agent || ticket.agent === filters.agent) &&
     (!filters.status || ticket.status === filters.status) &&
@@ -235,6 +238,19 @@ function matchesGenericFilters(ticket: PresentedTicket, filters: Record<string, 
     (!search || haystack.includes(search)) &&
     matchesPeriod(ticket, filters.period)
   );
+}
+
+function matchesProvider(ticket: PresentedTicket, providerFilter?: string) {
+  if (!providerFilter) {
+    return true;
+  }
+
+  const providers = providerFilter
+    .split(',')
+    .map((provider) => provider.trim().toUpperCase())
+    .filter(Boolean);
+
+  return providers.length === 0 || providers.includes(ticket.provider);
 }
 
 function withDefaultDashboardPeriod(filters: Record<string, string | undefined>): Record<string, string | undefined> {

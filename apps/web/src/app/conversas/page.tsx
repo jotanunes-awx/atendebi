@@ -19,6 +19,15 @@ import {
   getTicketSearchValue,
 } from '@/components/ticket-columns';
 import { getConversationMessages, getTickets } from '@/lib/api-client';
+import {
+  filterTicketsByExperience,
+  getUserExperience,
+  providerFilterValue,
+  providerLabels,
+  providerShortLabels,
+  type ProviderScope,
+} from '@/lib/access-control';
+import { useAuth } from '@/lib/auth';
 import type { DemoTicket } from '@/lib/demo-data';
 
 const allStatuses = ['Todos', 'OPEN', 'PENDING', 'CLOSED', 'CANCELED'];
@@ -26,12 +35,14 @@ const allSentiments = ['Todos', 'positivo', 'neutro', 'negativo'];
 const periodOptions = ['active', '24h', '7d', '30d', '90d', '12m', 'all'];
 
 export default function ConversasPage() {
+  const { user } = useAuth();
+  const experience = useMemo(() => getUserExperience(user), [user]);
   const [queue, setQueue] = useState('Todas');
   const [agent, setAgent] = useState('Todos');
   const [period, setPeriod] = useState('active');
   const [status, setStatus] = useState('Todos');
   const [sentiment, setSentiment] = useState('Todos');
-  const [source, setSource] = useState('Todos');
+  const [source, setSource] = useState<ProviderScope | 'Todos'>('Todos');
   const [channel, setChannel] = useState('Todos');
   const [group, setGroup] = useState('Todos');
   const [tag, setTag] = useState('Todas');
@@ -41,22 +52,26 @@ export default function ConversasPage() {
   const [copied, setCopied] = useState(false);
 
   const ticketsQuery = useQuery({
-    queryKey: ['conversation-tickets', period, status],
+    queryKey: ['conversation-tickets', period, status, source, experience.allowedProviders.join(',')],
     queryFn: () =>
       getTickets({
         pageSize: 300,
         period,
+        provider: providerFilterValue(source, experience),
         status: status === 'Todos' ? undefined : status,
       }),
   });
 
   const apiTickets = ticketsQuery.data?.data ?? [];
   const usingApi = !ticketsQuery.isError;
-  const tickets = useMemo(() => apiTickets as unknown as DemoTicket[], [apiTickets]);
+  const tickets = useMemo(
+    () => filterTicketsByExperience(apiTickets as unknown as DemoTicket[], experience),
+    [apiTickets, experience],
+  );
 
   const allQueues = useMemo(() => ['Todas', ...Array.from(new Set(tickets.map((ticket) => ticket.queue)))], [tickets]);
   const allAgents = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.agent)))], [tickets]);
-  const allSources = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => getTicketProvider(ticket))))], [tickets]);
+  const allSources = useMemo(() => ['Todos', ...experience.allowedProviders], [experience.allowedProviders]);
   const allChannels = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.channel)))], [tickets]);
   const allGroups = useMemo(() => ['Todos', ...Array.from(new Set(tickets.map((ticket) => ticket.group)))], [tickets]);
   const allTags = useMemo(() => ['Todas', ...Array.from(new Set(tickets.flatMap((ticket) => ticket.tags)))], [tickets]);
@@ -69,6 +84,12 @@ export default function ConversasPage() {
         count: tickets.filter((ticket) => getTicketProvider(ticket) === item).length,
       }));
   }, [allSources, tickets]);
+
+  useEffect(() => {
+    if (source !== 'Todos' && !experience.allowedProviders.includes(source)) {
+      setSource('Todos');
+    }
+  }, [experience.allowedProviders, source]);
 
   useEffect(() => {
     const ticketFromUrl = new URLSearchParams(window.location.search).get('ticket');
@@ -128,24 +149,39 @@ export default function ConversasPage() {
     <DashboardShell>
       <section className="space-y-6">
         <div className="rounded-lg border border-border bg-card p-6 shadow-panel">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Auditoria de conversas</p>
-          <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Conversas</h2>
+          <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Historico de atendimento</p>
+          <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Conversas e chamados</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Pesquise por cliente, telefone, ticket, fila, canal, grupo, tag ou sentimento. Ao clicar, a timeline completa fica aberta ao lado.
+            Encontre rapidamente uma pessoa, assunto, fila ou atendimento. Ao clicar, a conversa aparece ao lado em formato de linha do tempo.
           </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {experience.allowedProviders.map((provider) => (
+              <button
+                key={provider}
+                type="button"
+                onClick={() => setSource(provider)}
+                className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                  source === provider ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-secondary text-muted-foreground hover:bg-primary/10'
+                }`}
+              >
+                <span className="font-semibold">{providerShortLabels[provider]}</span>
+                <span className="ml-2 text-xs">{providerLabels[provider]}</span>
+              </button>
+            ))}
+          </div>
           <p className="mt-4 text-xs font-semibold text-primary">
-            Fonte: {ticketsQuery.isLoading ? 'Carregando API' : ticketsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
+            Dados: {ticketsQuery.isLoading ? 'Carregando API' : ticketsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
           </p>
         </div>
 
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
           <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-card-foreground">
             <Filter className="h-4 w-4 text-primary" aria-hidden="true" />
-            Filtros de investigacao
+            Encontrar atendimento
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-9">
             <FilterSelect label="Periodo" value={period} values={periodOptions} onChange={setPeriod} />
-            <FilterSelect label="Origem" value={source} values={allSources} onChange={setSource} />
+            <FilterSelect label="Origem" value={source} values={allSources} onChange={(value) => setSource(value as ProviderScope | 'Todos')} />
             <FilterSelect label="Fila" value={queue} values={allQueues} onChange={setQueue} />
             <FilterSelect label="Atendente" value={agent} values={allAgents} onChange={setAgent} />
             <FilterSelect label="Status" value={status} values={allStatuses} onChange={setStatus} />
@@ -174,7 +210,7 @@ export default function ConversasPage() {
                 <button
                   key={item.provider}
                   type="button"
-                  onClick={() => setSource(item.provider)}
+                  onClick={() => setSource(item.provider as ProviderScope)}
                   className={`rounded-lg border px-3 py-2 text-left transition hover:border-primary/60 ${
                     source === item.provider ? 'border-primary bg-primary/10' : 'border-border bg-secondary/40'
                   }`}

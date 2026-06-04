@@ -35,6 +35,17 @@ import { Button } from '@/components/ui/button';
 import { ticketColumns, getTicketSearchValue, formatDateTime, formatRatingLabel, hasTicketRating } from '@/components/ticket-columns';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { getConversationMessages, getDashboardDrilldown, getDashboardOverview, getTickets } from '@/lib/api-client';
+import {
+  dashboardViewLabels,
+  filterTicketsByExperience,
+  getUserExperience,
+  providerFilterValue,
+  providerLabels,
+  providerShortLabels,
+  type DashboardViewMode,
+  type ProviderScope,
+} from '@/lib/access-control';
+import { useAuth } from '@/lib/auth';
 import type { DemoTicket } from '@/lib/demo-data';
 import type { DashboardOverview, MetricIconKey } from '@/lib/mock-dashboard';
 import { useTheme } from '@/lib/theme';
@@ -133,12 +144,16 @@ function ticketDescription(rows: DemoTicket[]) {
 
 export default function Home() {
   const { theme } = useTheme();
+  const { user } = useAuth();
+  const experience = useMemo(() => getUserExperience(user), [user]);
   const isDark = theme === 'dark';
   const [chartsReady, setChartsReady] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState | null>(null);
   const [detail, setDetail] = useState<TicketDetailState | null>(null);
   const [period, setPeriod] = useState('active');
   const [statusFilter, setStatusFilter] = useState('');
+  const [provider, setProvider] = useState<ProviderScope | 'Todos'>('Todos');
+  const [viewMode, setViewMode] = useState<DashboardViewMode>(experience.preferredView);
   const [personSearch, setPersonSearch] = useState('');
   const [historyGroup, setHistoryGroup] = useState('Todos');
   const [historyChannel, setHistoryChannel] = useState('Todos');
@@ -147,10 +162,19 @@ export default function Home() {
     () => ({
       period,
       status: statusFilter || undefined,
+      provider: providerFilterValue(provider, experience),
       search: personSearch.trim() || undefined,
     }),
-    [period, personSearch, statusFilter],
+    [experience, period, personSearch, provider, statusFilter],
   );
+
+  useEffect(() => {
+    setViewMode(experience.preferredView);
+
+    if (provider !== 'Todos' && !experience.allowedProviders.includes(provider)) {
+      setProvider('Todos');
+    }
+  }, [experience, provider]);
 
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'overview', dashboardFilters],
@@ -166,7 +190,10 @@ export default function Home() {
   }, []);
 
   const dashboard = dashboardQuery.data ?? emptyDashboardOverview;
-  const liveTickets = useMemo(() => (ticketsQuery.data?.data ?? []) as unknown as DemoTicket[], [ticketsQuery.data?.data]);
+  const liveTickets = useMemo(
+    () => filterTicketsByExperience((ticketsQuery.data?.data ?? []) as unknown as DemoTicket[], experience),
+    [experience, ticketsQuery.data?.data],
+  );
   const historyGroups = useMemo(() => buildHistoryGroups(liveTickets), [liveTickets]);
   const historyChannels = useMemo(() => buildHistoryChannels(liveTickets), [liveTickets]);
   const selectedTicket = useMemo(
@@ -246,15 +273,85 @@ export default function Home() {
 
   return (
     <DashboardShell>
+      <div className="mb-4 rounded-lg border border-border bg-card p-4 shadow-panel">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Sua visao</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-normal text-card-foreground">
+              {dashboardViewLabels[viewMode]}
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+              {experience.shortDescription} Use os filtros abaixo para responder perguntas simples: quem esta esperando,
+              onde esta travado e quais casos precisam de cuidado.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[420px]">
+            <label className="text-xs font-medium text-muted-foreground">
+              Tipo de painel
+              <select
+                value={viewMode}
+                onChange={(event) => setViewMode(event.target.value as DashboardViewMode)}
+                className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-semibold text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+              >
+                {Object.entries(dashboardViewLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-medium text-muted-foreground">
+              Origem dos dados
+              <select
+                value={provider}
+                onChange={(event) => setProvider(event.target.value as ProviderScope | 'Todos')}
+                className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-semibold text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
+              >
+                <option value="Todos">Todas liberadas</option>
+                {experience.allowedProviders.map((item) => (
+                  <option key={item} value={item}>
+                    {providerShortLabels[item]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {experience.allowedProviders.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setProvider(item)}
+              className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                provider === item ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-secondary text-muted-foreground hover:bg-primary/10'
+              }`}
+            >
+              <span className="font-semibold">{providerShortLabels[item]}</span>
+              <span className="ml-2 text-xs">{providerLabels[item]}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setProvider('Todos')}
+            className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+              provider === 'Todos' ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-secondary text-muted-foreground hover:bg-primary/10'
+            }`}
+          >
+            Todas as origens liberadas
+          </button>
+        </div>
+      </div>
+
       <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border bg-card px-4 py-3 shadow-panel sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-card-foreground">Dashboard com drill-down operacional</p>
+          <p className="text-sm font-medium text-card-foreground">Painel de gestao</p>
           <p className="text-sm text-muted-foreground">
-            Fonte atual: {statusLabel} · {dashboard.periodLabel} · clique nos indicadores para ver os tickets.
+            Dados: {statusLabel} · {dashboard.periodLabel} · clique nos indicadores para abrir os atendimentos relacionados.
           </p>
         </div>
         <span className="w-fit rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
-          {dashboardQuery.isFetching ? 'Sincronizando' : 'Interativo'}
+          {dashboardQuery.isFetching ? 'Atualizando' : 'Pronto para detalhar'}
         </span>
       </div>
 

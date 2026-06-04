@@ -118,6 +118,12 @@ function formatStructuredContent(value: unknown): { label: string; content: stri
   }
 
   const record = value as Record<string, unknown>;
+  const unwrapped = unwrapStructuredRecord(record);
+
+  if (unwrapped !== record) {
+    return formatStructuredContent(unwrapped);
+  }
+
   const replied = toRecord(record.replied);
 
   if (Object.keys(replied).length > 0) {
@@ -126,7 +132,7 @@ function formatStructuredContent(value: unknown): { label: string; content: stri
 
     return {
       label: 'Resposta do cliente',
-      content: reference ? `Resposta: ${replyText}\nReferencia: template ${reference}` : `Resposta: ${replyText}`,
+      content: reference ? `Cliente escolheu: ${replyText}\nMensagem anterior: template ${reference}` : `Cliente escolheu: ${replyText}`,
     };
   }
 
@@ -139,7 +145,28 @@ function formatStructuredContent(value: unknown): { label: string; content: stri
     };
   }
 
-  const text = readText(record, ['text', 'title', 'description', 'value']);
+  const options = collectInteractiveOptions(record);
+  const text =
+    readNestedText(record, [
+      'text',
+      'title',
+      'description',
+      'value',
+      'body',
+      'content.text',
+      'content.body',
+      'interactive.body.text',
+      'interactive.header.text',
+      'resource.text',
+      'resource.title',
+    ]) ?? undefined;
+
+  if (options.length > 0) {
+    return {
+      label: 'Opcoes do bot',
+      content: [text || 'O bot apresentou opcoes para o cliente.', 'Opcoes apresentadas:', ...options.map((option, index) => `${index + 1}. ${option}`)].join('\n'),
+    };
+  }
 
   return {
     label: 'Mensagem estruturada',
@@ -152,14 +179,14 @@ function formatTemplate(template: Record<string, unknown>) {
   const language = toRecord(template.language);
   const languageCode = readText(language, ['code']);
   const variables = collectTemplateParameters(template);
-  const lines = [`Template: ${name}`];
+  const lines = [`Mensagem automatica: ${humanizeTemplateName(name)}`];
 
   if (languageCode) {
     lines.push(`Idioma: ${languageCode}`);
   }
 
   if (variables.length > 0) {
-    lines.push(`Variaveis: ${variables.join(', ')}`);
+    lines.push(`Dados usados: ${variables.join(', ')}`);
   }
 
   return lines.join('\n');
@@ -192,13 +219,7 @@ function readText(record: Record<string, unknown>, keys: string[]) {
 
 function readNestedText(record: Record<string, unknown>, paths: string[]) {
   for (const path of paths) {
-    const value = path.split('.').reduce<unknown>((current, key) => {
-      if (!current || typeof current !== 'object') {
-        return undefined;
-      }
-
-      return (current as Record<string, unknown>)[key];
-    }, record);
+    const value = readPathValue(record, path);
 
     if (typeof value === 'string' && value.trim().length > 0) {
       return value.trim();
@@ -210,4 +231,79 @@ function readNestedText(record: Record<string, unknown>, paths: string[]) {
 
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function unwrapStructuredRecord(record: Record<string, unknown>) {
+  const candidates = ['content', 'value', 'resource', 'message'];
+
+  for (const key of candidates) {
+    const value = record[key];
+
+    if (value && typeof value === 'object') {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = tryParseJson(value);
+
+      if (parsed) {
+        return parsed;
+      }
+    }
+  }
+
+  return record;
+}
+
+function collectInteractiveOptions(record: Record<string, unknown>) {
+  const options: string[] = [];
+  const paths = ['options', 'buttons', 'actions', 'items', 'rows', 'content.options', 'content.buttons', 'interactive.action.buttons'];
+
+  for (const path of paths) {
+    collectOptionLabels(readPathValue(record, path), options);
+  }
+
+  const sections = readPathValue(record, 'interactive.action.sections');
+
+  if (Array.isArray(sections)) {
+    for (const section of sections) {
+      collectOptionLabels(toRecord(section).rows, options);
+    }
+  }
+
+  return Array.from(new Set(options)).slice(0, 12);
+}
+
+function collectOptionLabels(value: unknown, options: string[]) {
+  if (!Array.isArray(value)) {
+    return;
+  }
+
+  for (const item of value) {
+    const record = toRecord(item);
+    const reply = toRecord(record.reply);
+    const label =
+      readText(record, ['text', 'title', 'label', 'name']) ??
+      readText(reply, ['title', 'text']);
+
+    if (label) {
+      options.push(label);
+    }
+  }
+}
+
+function humanizeTemplateName(name: string) {
+  return name
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function readPathValue(record: Record<string, unknown>, path: string) {
+  return path.split('.').reduce<unknown>((current, key) => {
+    if (!current || typeof current !== 'object') {
+      return undefined;
+    }
+
+    return (current as Record<string, unknown>)[key];
+  }, record);
 }
