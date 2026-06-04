@@ -135,7 +135,9 @@ npm run docker:server:down
 
 Esse modo tambem tem hot reload, mas depende da pasta `node_modules` local do servidor.
 
-Se a porta `3000` ja estiver ocupada no servidor, defina no `.env`:
+No modo servidor, o frontend fica publicado por padrao em `3001` para evitar conflito com ferramentas que usam `3000`, como Flowise. O log do container ainda pode mostrar `--port 3000`; isso e a porta interna do Next.js dentro do Docker.
+
+Para acessar por IP, deixe no `.env`:
 
 ```env
 WEB_PORT=3001
@@ -147,7 +149,7 @@ CORS_ORIGIN=http://192.168.79.63:3001,http://localhost:3001,http://localhost:300
 Depois suba novamente:
 
 ```bash
-npm run docker:dev:detached
+npm run docker:server:detached
 ```
 
 ## Acesso por IP em servidor de teste
