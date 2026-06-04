@@ -23,6 +23,7 @@
     "lint": "npm run lint -ws --if-present",
     "typecheck": "npm run typecheck -ws --if-present",
     "db:generate": "npm run db:generate -w @atendebi/api",
+    "db:deploy": "npx prisma migrate deploy --schema apps/api/prisma/schema.prisma",
     "db:migrate": "npm run db:migrate -w @atendebi/api",
     "db:seed": "npm run db:seed -w @atendebi/api",
     "db:studio": "npm run db:studio -w @atendebi/api"

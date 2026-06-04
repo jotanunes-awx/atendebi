@@ -108,11 +108,12 @@ O modo Docker usa hot reload. Quando voce alterar arquivos em `apps/api/src` ou 
 
 Se o servidor apresentar erro do npm dentro do container, use o compose de servidor. Ele usa o `node_modules` instalado no proprio host Linux e evita rodar `npm install` dentro do Docker.
 
-1. Instale dependencias no host uma vez:
+1. Instale dependencias e prepare o Prisma no host:
 
 ```bash
 npm install
 npm run db:generate
+npm run db:deploy
 ```
 
 2. Suba API e frontend em Docker:
@@ -133,7 +134,7 @@ npm run docker:server:logs
 npm run docker:server:down
 ```
 
-Esse modo tambem tem hot reload, mas depende da pasta `node_modules` local do servidor.
+Esse modo tambem tem hot reload, mas depende da pasta `node_modules` local do servidor. A API nao roda `prisma generate` a cada subida do container; quando houver migration nova, rode `npm run db:generate` e `npm run db:deploy` antes de subir novamente.
 
 No modo servidor, o frontend fica publicado por padrao em `3001` para evitar conflito com ferramentas que usam `3000`, como Flowise. O log do container ainda pode mostrar `--port 3000`; isso e a porta interna do Next.js dentro do Docker.
 
