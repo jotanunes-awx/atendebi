@@ -7,7 +7,7 @@ services:
     container_name: atendebi-api
     restart: unless-stopped
     working_dir: /workspace
-    command: sh -c "npm run dev -w @atendebi/api"
+    command: sh -c "npm run db:generate && npx prisma migrate deploy --schema apps/api/prisma/schema.prisma && npm run build -w @atendebi/api && npm run start -w @atendebi/api"
     env_file:
       - .env
       - apps/api/.env
@@ -19,9 +19,6 @@ services:
       REDIS_PORT: 6379
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001}
       NODE_OPTIONS: --dns-result-order=ipv4first
-      CHOKIDAR_USEPOLLING: true
-      TSC_WATCHFILE: PriorityPollingInterval
-      TSC_WATCHDIRECTORY: RecursiveDirectoryUsingFsWatchFile
     ports:
       - "${API_PORT:-3333}:3333"
     volumes:
@@ -46,12 +43,10 @@ services:
     container_name: atendebi-web
     restart: unless-stopped
     working_dir: /workspace
-    command: sh -c "npm run dev -w @atendebi/web -- --hostname 0.0.0.0 --port 3000"
+    command: sh -c "npm run build -w @atendebi/web && npm run start -w @atendebi/web -- --hostname 0.0.0.0 --port 3000"
     environment:
       NEXT_TELEMETRY_DISABLED: 1
       NODE_OPTIONS: --dns-result-order=ipv4first
-      WATCHPACK_POLLING: true
-      CHOKIDAR_USEPOLLING: true
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3333}
       NEXT_ALLOWED_DEV_ORIGINS: ${NEXT_ALLOWED_DEV_ORIGINS:-localhost,127.0.0.1}
       NEXT_PUBLIC_AUTH_MODE: ${NEXT_PUBLIC_AUTH_MODE:-mock}

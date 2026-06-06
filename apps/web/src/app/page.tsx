@@ -141,10 +141,12 @@ function RatingStars({ rating }: { rating: number }) {
 
 function InsightPieCard({
   chart,
+  isReady,
   isDark,
   onSliceClick,
 }: {
   chart: DashboardOverview['distributionCharts'][number];
+  isReady: boolean;
   isDark: boolean;
   onSliceClick: (label: string) => void;
 }) {
@@ -163,47 +165,51 @@ function InsightPieCard({
         </span>
       </div>
 
-      <button
-        type="button"
-        className="mt-3 h-52 w-full rounded-md transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => topItem && onSliceClick(topItem.label)}
-        aria-label={`Abrir detalhes de ${chart.title}`}
-      >
-        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-          <PieChart>
-            <Tooltip
-              wrapperStyle={{ outline: 'none' }}
-              contentStyle={{
-                backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                borderColor: isDark ? '#334155' : '#e2e8f0',
-                color: isDark ? '#f8fafc' : '#0f172a',
-              }}
-              formatter={(value, name) => [`${Number(value ?? 0)} registros`, String(name)]}
-            />
-            <Pie
-              data={chart.items}
-              dataKey="value"
-              nameKey="label"
-              innerRadius="58%"
-              outerRadius="82%"
-              paddingAngle={2}
-              stroke={isDark ? '#0f172a' : '#ffffff'}
-              strokeWidth={2}
-              onClick={(_, index) => {
-                const item = chart.items[index];
+      {isReady ? (
+        <button
+          type="button"
+          className="mt-3 block h-52 min-h-[208px] w-full min-w-0 rounded-md transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => topItem && onSliceClick(topItem.label)}
+          aria-label={`Abrir detalhes de ${chart.title}`}
+        >
+          <ResponsiveContainer width="100%" height={208} minWidth={180}>
+            <PieChart>
+              <Tooltip
+                wrapperStyle={{ outline: 'none' }}
+                contentStyle={{
+                  backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                  borderColor: isDark ? '#334155' : '#e2e8f0',
+                  color: isDark ? '#f8fafc' : '#0f172a',
+                }}
+                formatter={(value, name) => [`${Number(value ?? 0)} registros`, String(name)]}
+              />
+              <Pie
+                data={chart.items}
+                dataKey="value"
+                nameKey="label"
+                innerRadius="58%"
+                outerRadius="82%"
+                paddingAngle={2}
+                stroke={isDark ? '#0f172a' : '#ffffff'}
+                strokeWidth={2}
+                onClick={(_, index) => {
+                  const item = chart.items[index];
 
-                if (item) {
-                  onSliceClick(item.label);
-                }
-              }}
-            >
-              {chart.items.map((item) => (
-                <Cell key={item.label} fill={item.color} />
-              ))}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-      </button>
+                  if (item) {
+                    onSliceClick(item.label);
+                  }
+                }}
+              >
+                {chart.items.map((item) => (
+                  <Cell key={item.label} fill={item.color} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        </button>
+      ) : (
+        <div className="mt-3 h-52 min-h-[208px] w-full rounded-md bg-muted" />
+      )}
 
       <div className="mt-3 space-y-2">
         {chart.items.slice(0, 4).map((item) => {
@@ -527,6 +533,7 @@ export default function Home() {
             <InsightPieCard
               key={chart.title}
               chart={chart}
+              isReady={chartsReady}
               isDark={isDark}
               onSliceClick={(label) => {
                 const rows = getRowsForDistribution(chart.title, label, liveTickets);

@@ -550,6 +550,24 @@ export class IntegrationsService {
         ],
       };
     } catch (error) {
+      if (isBlipResourceNotFoundError(error)) {
+        const keyIdentity = extractBlipKeyIdentity(hasApiKey);
+
+        return {
+          provider,
+          checkedAt,
+          ok: true,
+          status: 'ready_limited',
+          message: 'Conexao com BLiP autenticada. O recurso de perfil usado no teste nao existe nesse bot, mas a chave e o endpoint responderam.',
+          details: [
+            { item: 'BLIP_BOT_KEY configurada apenas no backend', status: 'ok' },
+            { item: keyIdentity ? `Key identifica o bot ${keyIdentity}` : 'Identificador do bot nao foi lido da key', status: keyIdentity ? 'ok' : 'warning' },
+            { item: 'Commands API autenticou a requisicao', status: 'ok' },
+            { item: '/profile/greeting nao esta disponivel nesse bot/roteador', status: 'warning' },
+          ],
+        };
+      }
+
       return {
         provider,
         checkedAt,
@@ -3647,6 +3665,16 @@ function truncate(value: string, maxLength: number) {
   }
 
   return `${value.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function isBlipResourceNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+
+  return message.includes('requested resource was not found') || message.includes('resource was not found');
 }
 
 function sleep(ms: number) {
