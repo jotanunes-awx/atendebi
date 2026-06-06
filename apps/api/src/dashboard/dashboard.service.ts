@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma, TicketStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
 import { presentTicket, ticketInclude } from '../common/data/ticket-presenter';
@@ -17,12 +18,12 @@ export class DashboardService {
       return this.emptyOverview();
     }
 
+    const normalizedFilters = withDefaultDashboardPeriod(filters);
     const tickets = await this.prisma.ticket.findMany({
-      where: { tenantId },
+      where: buildTicketWhere(tenantId, normalizedFilters),
       include: ticketInclude,
       orderBy: { openedAt: 'desc' },
     });
-    const normalizedFilters = withDefaultDashboardPeriod(filters);
     const rows = tickets.map(presentTicket).filter((ticket) => matchesGenericFilters(ticket, normalizedFilters));
     const total = rows.length;
     const openTickets = rows.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING');
@@ -120,6 +121,7 @@ export class DashboardService {
       agentPerformance: buildAgentPerformance(rows),
       recurringTopics: buildRecurringTopics(rows),
       resolutionFunnel: buildResolutionFunnel(rows),
+      distributionCharts: buildDistributionCharts(rows),
       conversations: rows.slice(0, 6).map((ticket) => ({
         id: ticket.id,
         customer: ticket.customerName,
@@ -138,12 +140,12 @@ export class DashboardService {
       return { data: [], meta: { total: 0 } };
     }
 
+    const normalizedFilters = withDefaultDashboardPeriod(filters);
     const tickets = await this.prisma.ticket.findMany({
-      where: { tenantId },
+      where: buildTicketWhere(tenantId, normalizedFilters),
       include: ticketInclude,
       orderBy: { openedAt: 'desc' },
     });
-    const normalizedFilters = withDefaultDashboardPeriod(filters);
     const type = normalizedFilters.type ?? 'Atendimentos';
     const rows = tickets
       .map(presentTicket)
@@ -182,12 +184,53 @@ export class DashboardService {
       agentPerformance: [],
       recurringTopics: [],
       resolutionFunnel: [],
+      distributionCharts: [],
       conversations: [],
     };
   }
 }
 
 type PresentedTicket = ReturnType<typeof presentTicket>;
+
+function buildTicketWhere(tenantId: string, filters: Record<string, string | undefined>): Prisma.TicketWhereInput {
+  const where: Prisma.TicketWhereInput = { tenantId };
+  const status = parseTicketStatus(filters.status);
+
+  if (status) {
+    where.status = status;
+  } else if (filters.period === 'active') {
+    where.status = { in: [TicketStatus.OPEN, TicketStatus.PENDING] };
+  }
+
+  const openedAfter = openedAfterForPeriod(filters.period);
+
+  if (openedAfter) {
+    where.openedAt = { gte: openedAfter };
+  }
+
+  return where;
+}
+
+function parseTicketStatus(value?: string) {
+  if (value === 'OPEN' || value === 'PENDING' || value === 'CLOSED' || value === 'CANCELED') {
+    return value;
+  }
+
+  return undefined;
+}
+
+function openedAfterForPeriod(period?: string) {
+  const daysByPeriod: Record<string, number> = {
+    '24h': 1,
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+    '12m': 365,
+  };
+  const days = daysByPeriod[period ?? ''];
+
+  return days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
+}
 
 function matchesDrilldownType(ticket: PresentedTicket, type: string) {
   switch (type) {
@@ -377,6 +420,87 @@ function buildResolutionFunnel(rows: PresentedTicket[]) {
   ];
 }
 
+function buildDistributionCharts(rows: PresentedTicket[]) {
+  return [
+    {
+      title: 'Status dos atendimentos',
+      description: 'O que esta aberto, pendente ou finalizado',
+      items: buildDistribution(rows, statusDistributionLabel, {
+        Abertos: '#14b8a6',
+        Pendentes: '#f59e0b',
+        Fechados: '#22c55e',
+        Cancelados: '#94a3b8',
+      }),
+    },
+    {
+      title: 'Origem dos dados',
+      description: 'De onde vem o volume analisado',
+      items: buildDistribution(rows, (ticket) => ticket.providerLabel, {
+        BLiP: '#0ea5e9',
+        GLPI: '#8b5cf6',
+        'Teams Phone': '#f97316',
+        'Teams Phone / PABX': '#f97316',
+      }),
+    },
+    {
+      title: 'Risco percebido',
+      description: 'Prioridade para decisao rapida',
+      items: buildDistribution(rows, (ticket) => capitalize(ticket.risk), {
+        Baixo: '#22c55e',
+        Medio: '#f59e0b',
+        Alto: '#f43f5e',
+      }),
+    },
+    {
+      title: 'Sentimento',
+      description: 'Percepcao geral dos contatos',
+      items: buildDistribution(rows, (ticket) => capitalize(ticket.sentiment), {
+        Positivo: '#22c55e',
+        Neutro: '#64748b',
+        Negativo: '#f43f5e',
+      }),
+    },
+  ].filter((chart) => chart.items.length > 0);
+}
+
+function buildDistribution(
+  rows: PresentedTicket[],
+  getLabel: (ticket: PresentedTicket) => string,
+  colors: Record<string, string>,
+) {
+  const counts = new Map<string, number>();
+
+  for (const ticket of rows) {
+    const label = getLabel(ticket) || 'Nao informado';
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 6)
+    .map(([label, value], index) => ({
+      label,
+      value,
+      color: colors[label] ?? fallbackChartColors[index % fallbackChartColors.length],
+    }));
+}
+
+function statusDistributionLabel(ticket: PresentedTicket) {
+  if (ticket.status === 'OPEN') {
+    return 'Abertos';
+  }
+
+  if (ticket.status === 'PENDING') {
+    return 'Pendentes';
+  }
+
+  if (ticket.status === 'CLOSED') {
+    return 'Fechados';
+  }
+
+  return 'Cancelados';
+}
+
 function buildOperationalRisks(rows: PresentedTicket[]) {
   const lowRated = rows.filter((ticket) => ticket.rating > 0 && ticket.rating <= 2).length;
   const highRisk = rows.filter((ticket) => ticket.risk === 'alto').length;
@@ -448,3 +572,9 @@ function groupBy<T>(items: T[], getKey: (item: T) => string) {
 function formatNumber(value: number) {
   return value.toFixed(value % 1 === 0 ? 0 : 1).replace('.', ',');
 }
+
+function capitalize(value: string) {
+  return value ? `${value.charAt(0).toUpperCase()}${value.slice(1).toLowerCase()}` : 'Nao informado';
+}
+
+const fallbackChartColors = ['#14b8a6', '#0ea5e9', '#8b5cf6', '#f97316', '#f43f5e', '#64748b'];

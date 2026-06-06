@@ -249,6 +249,7 @@ export type IntegrationSyncResult = {
   accepted: boolean;
   status: string;
   message: string;
+  jobId?: string;
   rawEventId?: string;
   imported?: number;
   skipped?: number;

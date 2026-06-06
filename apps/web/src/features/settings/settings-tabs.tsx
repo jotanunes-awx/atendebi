@@ -352,6 +352,9 @@ function IntegrationResultBox({ result }: { result: IntegrationTestResult | Inte
     <div className={`mt-4 rounded-md border p-3 ${ok ? 'border-success/30 bg-success/10' : 'border-warning/30 bg-warning/10'}`}>
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{'checkedAt' in result ? 'Resultado do teste' : 'Resultado do sync'}</p>
       <p className="mt-2 text-sm leading-6 text-card-foreground">{result.message}</p>
+      {'jobId' in result && result.jobId ? (
+        <p className="mt-2 text-xs font-semibold text-primary">Job em fila: {result.jobId}</p>
+      ) : null}
       {'imported' in result || 'contacts' in result || 'messages' in result ? (
         <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-card-foreground">
           {'imported' in result && typeof result.imported === 'number' ? <span>{result.imported} registros</span> : null}

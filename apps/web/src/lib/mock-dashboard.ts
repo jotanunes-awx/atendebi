@@ -185,6 +185,48 @@ export const resolutionFunnel = [
 
 export type ResolutionFunnelItem = { label: string; value: number; share: number };
 
+export type DashboardDistributionItem = {
+  label: string;
+  value: number;
+  color: string;
+};
+
+export type DashboardDistributionChart = {
+  title: string;
+  description: string;
+  items: DashboardDistributionItem[];
+};
+
+export const distributionCharts: DashboardDistributionChart[] = [
+  {
+    title: 'Status dos atendimentos',
+    description: 'O que esta aberto, pendente ou finalizado',
+    items: [
+      { label: 'Abertos', value: 42, color: '#14b8a6' },
+      { label: 'Pendentes', value: 31, color: '#f59e0b' },
+      { label: 'Fechados', value: 113, color: '#22c55e' },
+    ],
+  },
+  {
+    title: 'Origem dos dados',
+    description: 'De onde vem o volume analisado',
+    items: [
+      { label: 'BLiP', value: 96, color: '#0ea5e9' },
+      { label: 'GLPI', value: 65, color: '#8b5cf6' },
+      { label: 'Teams Phone', value: 25, color: '#f97316' },
+    ],
+  },
+  {
+    title: 'Risco percebido',
+    description: 'Priorizacao visual para gestao',
+    items: [
+      { label: 'Baixo', value: 128, color: '#22c55e' },
+      { label: 'Medio', value: 42, color: '#f59e0b' },
+      { label: 'Alto', value: 16, color: '#f43f5e' },
+    ],
+  },
+];
+
 export const conversations = [
   {
     id: 'ticket-1001',
@@ -244,6 +286,7 @@ export type DashboardOverview = {
   agentPerformance: AgentPerformanceItem[];
   recurringTopics: RecurringTopic[];
   resolutionFunnel: ResolutionFunnelItem[];
+  distributionCharts: DashboardDistributionChart[];
   conversations: ConversationSummary[];
 };
 
@@ -262,5 +305,6 @@ export const mockDashboardOverview: DashboardOverview = {
   agentPerformance,
   recurringTopics,
   resolutionFunnel,
+  distributionCharts,
   conversations,
 };

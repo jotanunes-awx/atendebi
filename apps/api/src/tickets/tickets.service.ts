@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, TicketStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
 import { isUuid } from '../common/data/id-filter';
@@ -33,7 +34,7 @@ export class TicketsService {
     }
 
     const tickets = await this.prisma.ticket.findMany({
-      where: { tenantId },
+      where: buildTicketWhere(tenantId, filters),
       include: ticketInclude,
       orderBy: { openedAt: 'desc' },
     });
@@ -76,6 +77,46 @@ export class TicketsService {
 }
 
 type PresentedTicket = ReturnType<typeof presentTicket>;
+
+function buildTicketWhere(tenantId: string, filters: TicketFilters): Prisma.TicketWhereInput {
+  const where: Prisma.TicketWhereInput = { tenantId };
+  const status = parseTicketStatus(filters.status);
+
+  if (status) {
+    where.status = status;
+  } else if (filters.activeOnly === 'true' || filters.period === 'active') {
+    where.status = { in: [TicketStatus.OPEN, TicketStatus.PENDING] };
+  }
+
+  const openedAfter = openedAfterForPeriod(filters.period);
+
+  if (openedAfter) {
+    where.openedAt = { gte: openedAfter };
+  }
+
+  return where;
+}
+
+function parseTicketStatus(value?: string) {
+  if (value === 'OPEN' || value === 'PENDING' || value === 'CLOSED' || value === 'CANCELED') {
+    return value;
+  }
+
+  return undefined;
+}
+
+function openedAfterForPeriod(period?: string) {
+  const daysByPeriod: Record<string, number> = {
+    '24h': 1,
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+    '12m': 365,
+  };
+  const days = daysByPeriod[period ?? ''];
+
+  return days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
+}
 
 function matchesFilters(ticket: PresentedTicket, filters: TicketFilters) {
   const rating = filters.rating ? Number(filters.rating) : undefined;

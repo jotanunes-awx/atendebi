@@ -17,8 +17,11 @@ import {
 } from 'lucide-react';
 import {
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -103,6 +106,7 @@ const emptyDashboardOverview: DashboardOverview = {
   agentPerformance: [],
   recurringTopics: [],
   resolutionFunnel: [],
+  distributionCharts: [],
   conversations: [],
 };
 
@@ -132,6 +136,98 @@ function RatingStars({ rating }: { rating: number }) {
         );
       })}
     </div>
+  );
+}
+
+function InsightPieCard({
+  chart,
+  isDark,
+  onSliceClick,
+}: {
+  chart: DashboardOverview['distributionCharts'][number];
+  isDark: boolean;
+  onSliceClick: (label: string) => void;
+}) {
+  const total = chart.items.reduce((sum, item) => sum + item.value, 0);
+  const topItem = chart.items[0];
+
+  return (
+    <article className="rounded-lg border border-border bg-secondary p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-card-foreground">{chart.title}</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{chart.description}</p>
+        </div>
+        <span className="rounded-md border border-border bg-card px-2 py-1 text-xs font-semibold text-muted-foreground">
+          {total}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        className="mt-3 h-52 w-full rounded-md transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => topItem && onSliceClick(topItem.label)}
+        aria-label={`Abrir detalhes de ${chart.title}`}
+      >
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+          <PieChart>
+            <Tooltip
+              wrapperStyle={{ outline: 'none' }}
+              contentStyle={{
+                backgroundColor: isDark ? '#0f172a' : '#ffffff',
+                borderColor: isDark ? '#334155' : '#e2e8f0',
+                color: isDark ? '#f8fafc' : '#0f172a',
+              }}
+              formatter={(value, name) => [`${Number(value ?? 0)} registros`, String(name)]}
+            />
+            <Pie
+              data={chart.items}
+              dataKey="value"
+              nameKey="label"
+              innerRadius="58%"
+              outerRadius="82%"
+              paddingAngle={2}
+              stroke={isDark ? '#0f172a' : '#ffffff'}
+              strokeWidth={2}
+              onClick={(_, index) => {
+                const item = chart.items[index];
+
+                if (item) {
+                  onSliceClick(item.label);
+                }
+              }}
+            >
+              {chart.items.map((item) => (
+                <Cell key={item.label} fill={item.color} />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+      </button>
+
+      <div className="mt-3 space-y-2">
+        {chart.items.slice(0, 4).map((item) => {
+          const share = total > 0 ? Math.round((item.value / total) * 100) : 0;
+
+          return (
+            <button
+              key={item.label}
+              type="button"
+              className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onSliceClick(item.label)}
+            >
+              <span className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                <span className="truncate">{item.label}</span>
+              </span>
+              <span className="shrink-0 text-xs font-semibold text-card-foreground">
+                {item.value} · {share}%
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </article>
   );
 }
 
@@ -413,6 +509,38 @@ export default function Home() {
           );
         })}
       </div>
+
+      <section className="mt-5 rounded-lg border border-border bg-card p-4 shadow-panel">
+        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold tracking-normal text-card-foreground">Leitura rapida para gestao</h2>
+            <p className="text-sm text-muted-foreground">
+              Graficos visuais para entender composicao, origem, risco e sentimento sem navegar por tabelas.
+            </p>
+          </div>
+          <span className="w-fit rounded-md border border-info/30 bg-info/10 px-3 py-1 text-xs font-semibold text-info">
+            Clique em uma fatia para detalhar
+          </span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {dashboard.distributionCharts.map((chart) => (
+            <InsightPieCard
+              key={chart.title}
+              chart={chart}
+              isDark={isDark}
+              onSliceClick={(label) => {
+                const rows = getRowsForDistribution(chart.title, label, liveTickets);
+                openDrawer(chart.title, rows, [{ label: chart.title, value: label }]);
+              }}
+            />
+          ))}
+          {dashboard.distributionCharts.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-secondary p-5 text-sm leading-6 text-muted-foreground md:col-span-2 xl:col-span-4">
+              Sincronize uma origem real para montar os graficos executivos.
+            </div>
+          ) : null}
+        </div>
+      </section>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
@@ -953,6 +1081,40 @@ function getRowsForMetric(label: string, tickets: DemoTicket[]) {
 
   if (label === 'Oportunidades') {
     return tickets.filter((ticket) => ticket.isOpportunity);
+  }
+
+  return tickets;
+}
+
+function getRowsForDistribution(title: string, label: string, tickets: DemoTicket[]) {
+  if (title.includes('Status')) {
+    const statusByLabel: Record<string, DemoTicket['status']> = {
+      Abertos: 'OPEN',
+      Pendentes: 'PENDING',
+      Fechados: 'CLOSED',
+      Cancelados: 'CANCELED',
+    };
+    const status = statusByLabel[label];
+
+    return status ? tickets.filter((ticket) => ticket.status === status) : tickets;
+  }
+
+  if (title.includes('Origem')) {
+    const normalizedLabel = label.toLowerCase();
+
+    return tickets.filter((ticket) => {
+      const source = `${ticket.provider} ${ticket.providerLabel} ${ticket.channel}`.toLowerCase();
+
+      return source.includes(normalizedLabel.split(' ')[0] ?? normalizedLabel);
+    });
+  }
+
+  if (title.includes('Risco')) {
+    return tickets.filter((ticket) => ticket.risk.toLowerCase() === label.toLowerCase());
+  }
+
+  if (title.includes('Sentimento')) {
+    return tickets.filter((ticket) => ticket.sentiment.toLowerCase() === label.toLowerCase());
   }
 
   return tickets;

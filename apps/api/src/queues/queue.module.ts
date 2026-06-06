@@ -2,7 +2,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaModule } from '../common/prisma/prisma.module';
-import { EVENT_PROCESSING_QUEUE } from './queue.constants';
+import { EVENT_PROCESSING_QUEUE, INTEGRATION_SYNC_QUEUE } from './queue.constants';
 import { EventProcessingProcessor } from './event-processing.processor';
 
 @Module({
@@ -21,6 +21,9 @@ import { EventProcessingProcessor } from './event-processing.processor';
     }),
     BullModule.registerQueue({
       name: EVENT_PROCESSING_QUEUE,
+    }),
+    BullModule.registerQueue({
+      name: INTEGRATION_SYNC_QUEUE,
     }),
   ],
   providers: [EventProcessingProcessor],

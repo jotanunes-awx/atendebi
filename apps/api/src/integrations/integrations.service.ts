@@ -1,9 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import { IntegrationProvider, MessageDirection, Prisma, RawEventStatus, TicketStatus } from '@prisma/client';
+import type { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
+import { INTEGRATION_SYNC_QUEUE, type IntegrationSyncJob } from '../queues/queue.constants';
 
 const supportedProviders = [IntegrationProvider.BLIP, IntegrationProvider.GLPI, IntegrationProvider.TEAMS_PHONE] as const;
 
@@ -88,6 +91,7 @@ export class IntegrationsService {
     private readonly prisma: PrismaService,
     private readonly tenantContext: TenantContextService,
     private readonly configService: ConfigService,
+    @InjectQueue(INTEGRATION_SYNC_QUEUE) private readonly integrationSyncQueue: Queue<IntegrationSyncJob>,
   ) {}
 
   async list(tenantHeader?: string) {
@@ -171,7 +175,6 @@ export class IntegrationsService {
 
   async sync(providerParam: string, tenantHeader?: string) {
     const provider = parseProvider(providerParam);
-
     const tenantId = await this.tenantContext.resolveTenantId(tenantHeader);
 
     if (!tenantId) {
@@ -187,6 +190,55 @@ export class IntegrationsService {
         status: 'missing_credentials',
         message: missingMessage(provider, readiness.missingSettings),
       };
+    }
+
+    const jobId = `integration-sync:${tenantId}:${provider}`;
+    const job = await this.integrationSyncQueue.add(
+      'sync',
+      {
+        provider,
+        tenantId,
+        requestedAt: new Date().toISOString(),
+      },
+      {
+        jobId,
+        removeOnComplete: 25,
+        removeOnFail: 50,
+      },
+    );
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        action: 'integration.sync.queued',
+        entityType: 'integration',
+        entityId: provider,
+        metadata: {
+          jobId: String(job.id),
+          provider,
+          requestedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    return {
+      provider,
+      accepted: true,
+      status: 'queued',
+      jobId: String(job.id),
+      message:
+        provider === IntegrationProvider.GLPI
+          ? 'Sincronismo GLPI entrou na fila. A tela pode ser usada normalmente enquanto o AtendeBI importa os dados em lotes.'
+          : `${providerLabel(provider)} entrou na fila de sincronismo. Acompanhe os contadores de eventos e atualize a tela em alguns instantes.`,
+    };
+  }
+
+  async runSyncNow(providerParam: string, tenantHeader?: string) {
+    const provider = parseProvider(providerParam);
+    const tenantId = await this.tenantContext.resolveTenantId(tenantHeader);
+
+    if (!tenantId) {
+      throw new NotFoundException('Tenant not found or inactive');
     }
 
     if (provider === IntegrationProvider.GLPI) {
