@@ -1,6 +1,6 @@
 'use client';
 
-import { Download, ExternalLink, X } from 'lucide-react';
+import { Download, ExternalLink, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { cn } from '@/lib/utils';
@@ -30,6 +30,8 @@ export function DrilldownDrawer<T>({
   onRowClick,
   onOpenConversation,
 }: DrilldownDrawerProps<T>) {
+  const exportBaseName = slugify(title || 'atendebi-detalhe');
+
   return (
     <>
       <div
@@ -83,7 +85,7 @@ export function DrilldownDrawer<T>({
 
         <div className="flex flex-col gap-2 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">
-            Clique em um registro para abrir o detalhe completo. Exportacao ainda e uma acao mockada no frontend.
+            Clique em um registro para abrir o detalhe completo. Exporte o recorte atual para compartilhar a analise.
           </p>
           <div className="flex gap-2">
             {onOpenConversation ? (
@@ -92,7 +94,11 @@ export function DrilldownDrawer<T>({
                 Abrir conversa
               </Button>
             ) : null}
-            <Button type="button">
+            <Button variant="outline" type="button" onClick={() => openPrintableReport(title, description, filters, rows, exportBaseName)}>
+              <FileText className="h-4 w-4" aria-hidden="true" />
+              PDF
+            </Button>
+            <Button type="button" onClick={() => downloadCsv(rows, exportBaseName)}>
               <Download className="h-4 w-4" aria-hidden="true" />
               Exportar CSV
             </Button>
@@ -101,4 +107,119 @@ export function DrilldownDrawer<T>({
       </aside>
     </>
   );
+}
+
+function downloadCsv<T>(rows: T[], fileBaseName: string) {
+  const records = rows.map(flattenRow);
+  const headers = Array.from(new Set(records.flatMap((record) => Object.keys(record))));
+  const csv = [
+    headers.join(';'),
+    ...records.map((record) => headers.map((header) => escapeCsv(record[header] ?? '')).join(';')),
+  ].join('\n');
+
+  downloadBlob(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }), `${fileBaseName}.csv`);
+}
+
+function openPrintableReport<T>(
+  title: string,
+  description: string,
+  filters: Array<{ label: string; value: string }>,
+  rows: T[],
+  fileBaseName: string,
+) {
+  const records = rows.map(flattenRow);
+  const headers = Array.from(new Set(records.flatMap((record) => Object.keys(record)))).slice(0, 10);
+  const html = `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #0f172a; margin: 32px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { color: #475569; line-height: 1.5; }
+    .filters { margin: 18px 0; display: flex; gap: 8px; flex-wrap: wrap; }
+    .tag { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #e2e8f0; padding: 7px; text-align: left; vertical-align: top; }
+    th { background: #e0f2fe; color: #075985; }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(title)}</h1>
+  <p>${escapeHtml(description)}</p>
+  <div class="filters">
+    ${filters.map((filter) => `<span class="tag"><strong>${escapeHtml(filter.label)}:</strong> ${escapeHtml(filter.value)}</span>`).join('')}
+    <span class="tag"><strong>Total:</strong> ${rows.length} registros</span>
+  </div>
+  <table>
+    <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
+    <tbody>
+      ${records
+        .map((record) => `<tr>${headers.map((header) => `<td>${escapeHtml(record[header] ?? '')}</td>`).join('')}</tr>`)
+        .join('')}
+    </tbody>
+  </table>
+  <script>window.onload = () => { document.title = ${JSON.stringify(fileBaseName)}; window.print(); };</script>
+</body>
+</html>`;
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  window.open(url, '_blank', 'noopener,noreferrer');
+  window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+function flattenRow(row: unknown) {
+  const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : { valor: row };
+  const result: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(record)) {
+    if (value === null || value === undefined) {
+      result[key] = '';
+    } else if (Array.isArray(value)) {
+      result[key] = value.join(', ');
+    } else if (value instanceof Date) {
+      result[key] = value.toISOString();
+    } else if (typeof value === 'object') {
+      result[key] = JSON.stringify(value);
+    } else {
+      result[key] = String(value);
+    }
+  }
+
+  return result;
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsv(value: string) {
+  const escaped = value.replace(/"/g, '""');
+
+  return /[;"\n\r]/.test(escaped) ? `"${escaped}"` : escaped;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function slugify(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '') || 'atendebi-export';
 }

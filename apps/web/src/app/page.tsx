@@ -338,15 +338,23 @@ export default function Home() {
     });
   }
 
-  async function openDashboardDrawer(title: string, fallbackRows: DemoTicket[], filters: DrawerState['filters'], description?: string) {
+  async function openDashboardDrawer(
+    title: string,
+    fallbackRows: DemoTicket[],
+    filters: DrawerState['filters'],
+    description?: string,
+    apiType = title,
+    apiFilters: Record<string, string | number | undefined> = {},
+  ) {
     if (dashboardQuery.isError) {
       openDrawer(title, fallbackRows, filters, description);
       return;
     }
 
     try {
-      const response = await getDashboardDrilldown(title, dashboardFilters);
-      const rows = response.data as DemoTicket[];
+      const response = await getDashboardDrilldown(apiType, { ...dashboardFilters, ...apiFilters });
+      const apiRows = response.data as DemoTicket[];
+      const rows = reconcileDrilldownRows(apiRows, fallbackRows, apiFilters);
       openDrawer(title, rows, filters, description ?? ticketDescription(rows));
     } catch {
       openDrawer(title, fallbackRows, filters, description);
@@ -537,7 +545,16 @@ export default function Home() {
               isDark={isDark}
               onSliceClick={(label) => {
                 const rows = getRowsForDistribution(chart.title, label, liveTickets);
-                openDrawer(chart.title, rows, [{ label: chart.title, value: label }]);
+                const drilldown = getDistributionDrilldown(chart.title, label);
+
+                void openDashboardDrawer(
+                  `${chart.title}: ${label}`,
+                  rows,
+                  [{ label: chart.title, value: label }],
+                  ticketDescription(rows),
+                  drilldown.type,
+                  drilldown.filters,
+                );
               }}
             />
           ))}
@@ -567,7 +584,14 @@ export default function Home() {
                     if (state.activeLabel) {
                       const hourLabel = String(state.activeLabel);
                       const rows = getRowsForHour(hourLabel, liveTickets);
-                      openDrawer(`Volume ${hourLabel}`, rows, [{ label: 'Hora', value: hourLabel }]);
+                      void openDashboardDrawer(
+                        `Volume ${hourLabel}`,
+                        rows,
+                        [{ label: 'Hora', value: hourLabel }],
+                        ticketDescription(rows),
+                        'Atendimentos',
+                        { hour: hourLabel },
+                      );
                     }
                   }}
                 >
@@ -1125,6 +1149,80 @@ function getRowsForDistribution(title: string, label: string, tickets: DemoTicke
   }
 
   return tickets;
+}
+
+function getDistributionDrilldown(title: string, label: string) {
+  if (title.includes('Status')) {
+    const statusByLabel: Record<string, DemoTicket['status']> = {
+      Abertos: 'OPEN',
+      Pendentes: 'PENDING',
+      Fechados: 'CLOSED',
+      Cancelados: 'CANCELED',
+    };
+
+    return { type: 'Atendimentos', filters: { status: statusByLabel[label] } };
+  }
+
+  if (title.includes('Origem')) {
+    const providerByLabel: Record<string, string> = {
+      BLiP: 'BLIP',
+      GLPI: 'GLPI',
+      'Teams Phone': 'TEAMS_PHONE',
+      'Teams Phone / PABX': 'TEAMS_PHONE',
+      Telefonia: 'TEAMS_PHONE',
+    };
+    const provider = providerByLabel[label] ?? (label.toLowerCase().includes('team') ? 'TEAMS_PHONE' : undefined);
+
+    return { type: 'Atendimentos', filters: { provider } };
+  }
+
+  if (title.includes('Risco')) {
+    return { type: 'Atendimentos', filters: { risk: label.toLowerCase() } };
+  }
+
+  if (title.includes('Sentimento')) {
+    return { type: 'Atendimentos', filters: { sentiment: label.toLowerCase() } };
+  }
+
+  return { type: 'Atendimentos', filters: {} };
+}
+
+function reconcileDrilldownRows(
+  apiRows: DemoTicket[],
+  fallbackRows: DemoTicket[],
+  apiFilters: Record<string, string | number | undefined>,
+) {
+  if (apiRows.length === 0) {
+    return fallbackRows;
+  }
+
+  const hasExtraFilters = Object.values(apiFilters).some((value) => value !== undefined && value !== '');
+
+  if (!hasExtraFilters) {
+    return apiRows;
+  }
+
+  const narrowedRows = applyClientDrilldownFilters(apiRows, apiFilters);
+
+  if (narrowedRows.length > 0 || fallbackRows.length === 0) {
+    return narrowedRows;
+  }
+
+  return fallbackRows;
+}
+
+function applyClientDrilldownFilters(rows: DemoTicket[], filters: Record<string, string | number | undefined>) {
+  return rows.filter((ticket) => {
+    const hour = filters.hour ? String(filters.hour) : '';
+
+    return (
+      (!filters.status || ticket.status === filters.status) &&
+      (!filters.provider || ticket.provider === filters.provider) &&
+      (!filters.risk || ticket.risk === String(filters.risk).toLowerCase()) &&
+      (!filters.sentiment || ticket.sentiment === String(filters.sentiment).toLowerCase()) &&
+      (!hour || `${String(new Date(ticket.openedAt).getUTCHours()).padStart(2, '0')}h` === hour)
+    );
+  });
 }
 
 function getRowsForHour(hourLabel: string, tickets: DemoTicket[]) {

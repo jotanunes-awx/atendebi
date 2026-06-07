@@ -51,13 +51,15 @@ export function DashboardShell({ children }: DashboardShellProps) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="flex min-h-screen flex-col md:flex-row">
-        <aside className="border-b border-border bg-card md:w-64 md:border-b-0 md:border-r">
+        <aside className="border-b border-sky-900/40 bg-sky-950 text-white shadow-xl md:sticky md:top-0 md:m-3 md:h-[calc(100vh-1.5rem)] md:w-64 md:rounded-2xl md:border md:border-sky-700/40">
           <div className="flex h-16 items-center justify-between px-5 md:h-20">
-            <div>
-              <p className="text-base font-semibold tracking-normal text-card-foreground">AtendeBI</p>
-              <p className="text-xs font-medium text-muted-foreground">{experience.audienceLabel}</p>
+            <div className="min-w-0">
+              <p className="text-base font-semibold tracking-normal text-white">AtendeBI</p>
+              <p className="truncate text-xs font-medium text-sky-200">{experience.audienceLabel}</p>
             </div>
-            <Bot className="h-5 w-5 text-primary" aria-hidden="true" />
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-cyan-300/30 bg-cyan-300/10 text-cyan-200">
+              <Bot className="h-5 w-5" aria-hidden="true" />
+            </span>
           </div>
           <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:block md:space-y-1 md:overflow-visible md:pb-0">
             {visibleNavItems.map((item) => {
@@ -67,8 +69,8 @@ export function DashboardShell({ children }: DashboardShellProps) {
                   key={item.label}
                   href={item.href}
                   className={cn(
-                    'flex h-10 shrink-0 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground md:w-full',
-                    isActive && 'bg-primary/10 text-primary',
+                    'flex h-10 shrink-0 items-center gap-3 rounded-xl px-3 text-sm font-medium text-sky-100 transition-colors hover:bg-white/10 hover:text-white md:w-full',
+                    isActive && 'bg-cyan-300 text-sky-950 shadow-sm hover:bg-cyan-200 hover:text-sky-950',
                   )}
                 >
                   <item.icon className="h-4 w-4" aria-hidden="true" />
@@ -80,7 +82,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
         </aside>
 
         <div className="min-w-0 flex-1">
-          <header className="flex min-h-16 flex-col justify-center gap-3 border-b border-border bg-card px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6">
+          <header className="flex min-h-16 flex-col justify-center gap-3 border-b border-border bg-card/95 px-4 py-3 backdrop-blur md:flex-row md:items-center md:justify-between md:px-6">
             <div>
               <h1 className="text-xl font-semibold tracking-normal text-card-foreground">{activeLabel}</h1>
               <p className="text-sm text-muted-foreground">

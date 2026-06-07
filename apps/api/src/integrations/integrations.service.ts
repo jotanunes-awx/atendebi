@@ -3694,6 +3694,10 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
       throw new Error(`Tempo limite ao chamar ${url} depois de ${timeoutMs}ms.`);
     }
 
+    if (error instanceof Error && error.message.toLowerCase().includes('fetch failed')) {
+      throw new Error(`Falha de rede ao chamar ${url}. Verifique se o container da API resolve o DNS/IP do GLPI, se a porta esta liberada e se o certificado TLS e aceito pelo Node.`);
+    }
+
     throw error;
   } finally {
     clearTimeout(timeout);

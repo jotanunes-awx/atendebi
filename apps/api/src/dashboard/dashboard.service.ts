@@ -278,6 +278,8 @@ function matchesGenericFilters(ticket: PresentedTicket, filters: Record<string, 
     (!filters.status || ticket.status === filters.status) &&
     (!filters.rating || ticket.rating === Number(filters.rating)) &&
     (!filters.sentiment || ticket.sentiment === filters.sentiment) &&
+    (!filters.risk || ticket.risk === filters.risk) &&
+    (!filters.hour || `${String(new Date(ticket.openedAt).getUTCHours()).padStart(2, '0')}h` === filters.hour) &&
     (!search || haystack.includes(search)) &&
     matchesPeriod(ticket, filters.period)
   );
