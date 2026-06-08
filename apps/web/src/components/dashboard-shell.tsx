@@ -3,16 +3,21 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   BarChart3,
   Bot,
-  ChevronDown,
+  BriefcaseBusiness,
   ClipboardCheck,
+  Headphones,
   LayoutDashboard,
+  LineChart,
   LogIn,
   Menu,
   MessageSquareText,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Settings,
   ShoppingCart,
@@ -24,7 +29,7 @@ import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserMenu } from '@/components/user-menu';
 import { useAuth } from '@/lib/auth';
-import { getUserExperience } from '@/lib/access-control';
+import { getUserExperience, type DashboardViewMode } from '@/lib/access-control';
 
 const navItems = [
   { label: 'Visao Geral', href: '/', icon: LayoutDashboard },
@@ -38,17 +43,22 @@ const navItems = [
 ];
 
 const navGroups = [
-  { label: 'Menu', items: ['/', '/filas', '/atendentes'] },
+  { label: 'Operacao', items: ['/', '/filas', '/atendentes'] },
   { label: 'Inteligencia', items: ['/conversas', '/qualidade', '/bot', '/vendas'] },
   { label: 'Administracao', items: ['/configuracoes'] },
 ];
 
-const topModules = [
-  { label: 'Atendimento', href: '/', paths: ['/', '/conversas', '/qualidade'] },
-  { label: 'Filas e equipes', href: '/filas', paths: ['/filas', '/atendentes'] },
-  { label: 'Bot', href: '/bot', paths: ['/bot'] },
-  { label: 'Vendas', href: '/vendas', paths: ['/vendas'] },
-  { label: 'Configuracoes', href: '/configuracoes', paths: ['/configuracoes'] },
+const dashboardTabs: Array<{
+  label: string;
+  description: string;
+  view: DashboardViewMode;
+  icon: typeof LayoutDashboard;
+}> = [
+  { label: 'Executivo', description: 'Resumo para diretoria', view: 'executive', icon: LayoutDashboard },
+  { label: 'Atendimento', description: 'Clientes, filas e qualidade', view: 'service', icon: Headphones },
+  { label: 'TI / GLPI', description: 'Chamados e backlog', view: 'it', icon: LineChart },
+  { label: 'Comercial', description: 'Leads e oportunidades', view: 'commercial', icon: BriefcaseBusiness },
+  { label: 'Completo', description: 'Todas as origens', view: 'global', icon: Sparkles },
 ];
 
 type DashboardShellProps = {
@@ -60,48 +70,92 @@ export function DashboardShell({ children }: DashboardShellProps) {
   const { isAuthenticated, isReady, user } = useAuth();
   const experience = getUserExperience(user);
   const visibleNavItems = navItems.filter((item) => experience.visibleNav.includes(item.href));
+  const [collapsed, setCollapsed] = useState(false);
+  const [activeDashboardView, setActiveDashboardView] = useState<DashboardViewMode | null>(null);
+
+  useEffect(() => {
+    setCollapsed(window.localStorage.getItem('atendebi-sidebar-collapsed') === 'true');
+    setActiveDashboardView(readDashboardViewFromUrl());
+  }, []);
+
+  function toggleSidebar() {
+    setCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem('atendebi-sidebar-collapsed', String(next));
+      return next;
+    });
+  }
 
   const activeLabel =
     visibleNavItems.find((item) =>
       item.href === '/' ? pathname === '/' : pathname?.startsWith(item.href),
     )?.label ?? 'Visao Geral';
-  const visibleTopModules = topModules.filter((module) =>
-    module.paths.some((modulePath) => visibleNavItems.some((item) => item.href === modulePath)),
+
+  const visibleDashboardTabs = useMemo(
+    () =>
+      dashboardTabs.filter((tab) => {
+        if (tab.view === 'it') {
+          return experience.allowedProviders.includes('GLPI');
+        }
+
+        if (tab.view === 'commercial') {
+          return experience.allowedProviders.includes('BLIP') || experience.allowedProviders.includes('TEAMS_PHONE');
+        }
+
+        if (tab.view === 'global') {
+          return experience.preferredView === 'global' || experience.allowedProviders.length >= 3;
+        }
+
+        return true;
+      }),
+    [experience.allowedProviders, experience.preferredView],
   );
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_32rem),linear-gradient(180deg,hsl(var(--background)),hsl(var(--secondary)))] text-foreground">
       <div className="flex min-h-screen flex-col md:flex-row">
-        <aside className="border-b border-white/10 bg-[linear-gradient(180deg,#1f3f86,#11265c_48%,#0d1d49)] text-white shadow-[0_24px_60px_rgba(15,23,42,0.18)] md:sticky md:top-0 md:h-screen md:w-[20.5rem]">
-          <div className="flex h-20 items-center justify-between px-6">
-            <Link href="/" className="flex min-w-0 items-center gap-3">
-              <span className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-white/95 text-sky-700 shadow-lg shadow-sky-950/20">
+        <aside
+          className={cn(
+            'border-b border-white/10 bg-[linear-gradient(180deg,#1f3f86,#11265c_48%,#0d1d49)] text-white shadow-[0_24px_60px_rgba(15,23,42,0.18)] transition-[width] duration-300 md:sticky md:top-0 md:h-screen',
+            collapsed ? 'md:w-[5.75rem]' : 'md:w-[20.5rem]',
+          )}
+        >
+          <div className={cn('flex h-20 items-center px-4', collapsed ? 'justify-center md:px-3' : 'justify-between md:px-6')}>
+            <Link href="/" className={cn('flex min-w-0 items-center gap-3', collapsed && 'md:justify-center')}>
+              <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/95 text-sky-700 shadow-lg shadow-sky-950/20">
                 <Sparkles className="h-5 w-5" aria-hidden="true" />
                 <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-cyan-300 ring-2 ring-[#1f3f86]" />
               </span>
-              <div className="min-w-0">
+              <div className={cn('min-w-0 transition-opacity duration-200', collapsed && 'md:hidden')}>
                 <p className="text-xl font-bold tracking-normal text-white">AtendeBI</p>
                 <p className="truncate text-xs font-medium text-sky-100/80">Inteligencia de atendimento</p>
               </div>
             </Link>
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className={cn(
+                'hidden h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-sky-100 transition hover:bg-white/15 md:flex',
+                collapsed && 'absolute left-[4.2rem] z-10 rounded-l-none',
+              )}
+              aria-label={collapsed ? 'Expandir menu lateral' : 'Recolher menu lateral'}
+              title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+            >
+              {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
+            </button>
             <span className="flex h-9 w-9 items-center justify-center rounded-xl text-sky-100/80 md:hidden">
               <Menu className="h-5 w-5" aria-hidden="true" />
             </span>
           </div>
-          <div className="hidden px-6 pb-8 md:block">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between rounded-2xl border border-white/15 bg-white/10 px-4 py-4 text-left shadow-inner shadow-white/5 backdrop-blur transition hover:bg-white/15"
-            >
-              <span>
-                <span className="block text-sm font-semibold text-white">{user?.tenant ?? 'Jotanunes'}</span>
-                <span className="mt-1 block text-xs text-sky-100/75">{experience.audienceLabel}</span>
-              </span>
-              <ChevronDown className="h-4 w-4 text-sky-100/70" aria-hidden="true" />
-            </button>
+
+          <div className={cn('hidden px-6 pb-8 md:block', collapsed && 'md:hidden')}>
+            <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 shadow-inner shadow-white/5 backdrop-blur">
+              <span className="block text-sm font-semibold text-white">{user?.tenant ?? 'Jotanunes'}</span>
+              <span className="mt-1 block text-xs text-sky-100/75">{experience.audienceLabel}</span>
+            </div>
           </div>
 
-          <nav className="flex gap-2 overflow-x-auto px-4 pb-4 md:block md:space-y-7 md:overflow-visible md:px-6">
+          <nav className={cn('flex gap-2 overflow-x-auto px-4 pb-4 md:block md:overflow-visible', collapsed ? 'md:px-3' : 'md:space-y-7 md:px-6')}>
             {navGroups.map((group) => {
               const groupedItems = visibleNavItems.filter((item) => group.items.includes(item.href));
 
@@ -111,18 +165,20 @@ export function DashboardShell({ children }: DashboardShellProps) {
 
               return (
                 <div key={group.label} className="shrink-0 md:shrink">
-                  <p className="mb-2 hidden text-[0.68rem] font-bold uppercase tracking-[0.18em] text-sky-100/45 md:block">
+                  <p className={cn('mb-2 hidden text-[0.68rem] font-bold uppercase tracking-[0.18em] text-sky-100/45 md:block', collapsed && 'md:hidden')}>
                     {group.label}
                   </p>
-                  <div className="flex gap-2 md:block md:space-y-1.5">
+                  <div className={cn('flex gap-2 md:block', !collapsed && 'md:space-y-1.5', collapsed && 'md:space-y-2')}>
                     {groupedItems.map((item) => {
                       const isActive = item.href === '/' ? pathname === '/' : pathname?.startsWith(item.href);
                       return (
                         <Link
                           key={item.label}
                           href={item.href}
+                          title={collapsed ? item.label : undefined}
                           className={cn(
-                            'group flex h-11 shrink-0 items-center gap-3 rounded-2xl px-3 text-sm font-semibold text-sky-100/75 transition-all duration-200 hover:bg-white/12 hover:text-white md:w-full',
+                            'group flex h-11 shrink-0 items-center rounded-2xl text-sm font-semibold text-sky-100/75 transition-all duration-200 hover:bg-white/12 hover:text-white md:w-full',
+                            collapsed ? 'justify-center px-0' : 'gap-3 px-3',
                             isActive && 'bg-white text-[#17326f] shadow-[0_14px_36px_rgba(0,0,0,0.18)] hover:bg-white hover:text-[#17326f]',
                           )}
                         >
@@ -134,7 +190,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
                           >
                             <item.icon className="h-4 w-4" aria-hidden="true" />
                           </span>
-                          <span>{item.label}</span>
+                          <span className={cn(collapsed && 'md:hidden')}>{item.label}</span>
                         </Link>
                       );
                     })}
@@ -144,13 +200,13 @@ export function DashboardShell({ children }: DashboardShellProps) {
             })}
           </nav>
 
-          <div className="mt-auto hidden px-6 pb-6 md:block">
-            <div className="rounded-3xl border border-white/10 bg-white/10 p-4 shadow-inner shadow-white/5">
+          <div className={cn('mt-auto hidden px-6 pb-6 md:block', collapsed && 'md:px-3')}>
+            <div className={cn('rounded-3xl border border-white/10 bg-white/10 p-4 shadow-inner shadow-white/5', collapsed && 'flex justify-center p-3')}>
               <div className="flex items-center gap-3">
                 <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-300/15 text-cyan-200">
                   <Activity className="h-5 w-5" aria-hidden="true" />
                 </span>
-                <div>
+                <div className={cn(collapsed && 'md:hidden')}>
                   <p className="text-sm font-semibold text-white">Historico proprio</p>
                   <p className="text-xs text-sky-100/70">24 meses auditaveis</p>
                 </div>
@@ -161,35 +217,49 @@ export function DashboardShell({ children }: DashboardShellProps) {
 
         <div className="min-w-0 flex-1">
           <div className="sticky top-0 z-30 border-b border-border/70 bg-background/92 backdrop-blur-xl">
-            <div className="mx-auto flex h-16 w-full max-w-[1540px] items-center gap-2 overflow-x-auto px-4 md:px-8">
-              {visibleTopModules.map((module) => {
-                const isActive = module.paths.some((modulePath) =>
-                  modulePath === '/' ? pathname === '/' : pathname?.startsWith(modulePath),
-                );
+            <div className="mx-auto flex w-full max-w-[1540px] flex-col gap-3 px-4 py-3 md:px-8 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <p className="text-[0.68rem] font-bold uppercase tracking-[0.18em] text-primary">Dashboards</p>
+                <p className="mt-1 text-xs text-muted-foreground">Troque a visao sem sair do produto.</p>
+              </div>
+              <div className="flex gap-2 overflow-x-auto">
+                {visibleDashboardTabs.map((tab) => {
+                  const isActive = pathname === '/' && (activeDashboardView ?? experience.preferredView) === tab.view;
 
-                return (
-                <Link
-                    key={module.label}
-                    href={module.href}
-                  className={cn(
-                      'relative flex h-full shrink-0 items-center px-4 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground',
-                      isActive && 'text-foreground',
-                  )}
-                >
-                    {module.label}
-                    {isActive ? <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-primary" /> : null}
-                </Link>
-                );
-              })}
+                  return (
+                    <a
+                      key={tab.view}
+                      href={`/?view=${tab.view}`}
+                      className={cn(
+                        'group flex min-w-[156px] items-center gap-3 rounded-2xl border border-border bg-card px-3 py-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-panel',
+                        isActive && 'border-primary/40 bg-primary/10',
+                      )}
+                    >
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground">
+                        <tab.icon className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-card-foreground">{tab.label}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{tab.description}</span>
+                      </span>
+                    </a>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
           <header className="border-b border-border/60 bg-card/80 px-4 py-5 shadow-[0_16px_42px_rgba(15,23,42,0.04)] backdrop-blur md:px-8">
             <div className="mx-auto flex w-full max-w-[1540px] flex-col justify-center gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border bg-card text-sky-600 shadow-sm md:hidden">
+                <button
+                  type="button"
+                  onClick={toggleSidebar}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border bg-card text-sky-600 shadow-sm md:hidden"
+                  aria-label="Alternar menu lateral"
+                >
                   <Menu className="h-5 w-5" aria-hidden="true" />
-                </span>
+                </button>
                 <div className="min-w-0">
                   <h1 className="text-2xl font-bold tracking-normal text-card-foreground">{activeLabel}</h1>
                   <p className="max-w-3xl truncate text-sm text-muted-foreground md:whitespace-normal">
@@ -224,4 +294,16 @@ export function DashboardShell({ children }: DashboardShellProps) {
       </div>
     </div>
   );
+}
+
+function readDashboardViewFromUrl(): DashboardViewMode | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const view = new URLSearchParams(window.location.search).get('view');
+
+  return view === 'executive' || view === 'service' || view === 'it' || view === 'commercial' || view === 'global'
+    ? view
+    : null;
 }

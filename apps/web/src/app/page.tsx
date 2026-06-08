@@ -151,7 +151,6 @@ function InsightPieCard({
   onSliceClick: (label: string) => void;
 }) {
   const total = chart.items.reduce((sum, item) => sum + item.value, 0);
-  const topItem = chart.items[0];
 
   return (
     <article className="rounded-lg border border-border bg-secondary p-4">
@@ -166,12 +165,7 @@ function InsightPieCard({
       </div>
 
       {isReady ? (
-        <button
-          type="button"
-          className="mt-3 block h-52 min-h-[208px] w-full min-w-0 rounded-md transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => topItem && onSliceClick(topItem.label)}
-          aria-label={`Abrir detalhes de ${chart.title}`}
-        >
+        <div className="mt-3 h-52 min-h-[208px] w-full min-w-0 rounded-md bg-card/40">
           <ResponsiveContainer width="100%" height={208} minWidth={180}>
             <PieChart>
               <Tooltip
@@ -199,6 +193,7 @@ function InsightPieCard({
                     onSliceClick(item.label);
                   }
                 }}
+                cursor="pointer"
               >
                 {chart.items.map((item) => (
                   <Cell key={item.label} fill={item.color} />
@@ -206,10 +201,14 @@ function InsightPieCard({
               </Pie>
             </PieChart>
           </ResponsiveContainer>
-        </button>
+        </div>
       ) : (
         <div className="mt-3 h-52 min-h-[208px] w-full rounded-md bg-muted" />
       )}
+
+      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+        Clique em uma fatia ou legenda para ver somente aquele grupo.
+      </p>
 
       <div className="mt-3 space-y-2">
         {chart.items.slice(0, 4).map((item) => {
@@ -260,6 +259,15 @@ export default function Home() {
   const [historyGroup, setHistoryGroup] = useState('Todos');
   const [historyChannel, setHistoryChannel] = useState('Todos');
   const [selectedTicketId, setSelectedTicketId] = useState('');
+
+  useEffect(() => {
+    setViewMode(readDashboardViewFromUrl() ?? experience.preferredView);
+
+    if (provider !== 'Todos' && !experience.allowedProviders.includes(provider)) {
+      setProvider('Todos');
+    }
+  }, [experience, provider]);
+
   const dashboardFilters = useMemo(
     () => ({
       period,
@@ -269,14 +277,6 @@ export default function Home() {
     }),
     [experience, period, personSearch, provider, statusFilter],
   );
-
-  useEffect(() => {
-    setViewMode(experience.preferredView);
-
-    if (provider !== 'Todos' && !experience.allowedProviders.includes(provider)) {
-      setProvider('Todos');
-    }
-  }, [experience, provider]);
 
   const dashboardQuery = useQuery({
     queryKey: ['dashboard', 'overview', dashboardFilters],
@@ -400,7 +400,11 @@ export default function Home() {
               Tipo de painel
               <select
                 value={viewMode}
-                onChange={(event) => setViewMode(event.target.value as DashboardViewMode)}
+                onChange={(event) => {
+                  const nextView = event.target.value as DashboardViewMode;
+                  setViewMode(nextView);
+                  updateDashboardViewUrl(nextView);
+                }}
                 className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-semibold text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20"
               >
                 {Object.entries(dashboardViewLabels).map(([value, label]) => (
@@ -548,10 +552,13 @@ export default function Home() {
                 const drilldown = getDistributionDrilldown(chart.title, label);
 
                 void openDashboardDrawer(
-                  `${chart.title}: ${label}`,
+                  `${label} em ${chart.title}`,
                   rows,
-                  [{ label: chart.title, value: label }],
-                  ticketDescription(rows),
+                  [
+                    { label: 'Grafico', value: chart.title },
+                    { label: 'Grupo clicado', value: label },
+                  ],
+                  distributionDescription(chart.title, label, rows.length),
                   drilldown.type,
                   drilldown.filters,
                 );
@@ -1093,6 +1100,36 @@ export default function Home() {
   );
 }
 
+function readDashboardViewFromUrl(): DashboardViewMode | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const view = new URLSearchParams(window.location.search).get('view');
+
+  return isDashboardViewMode(view) ? view : null;
+}
+
+function updateDashboardViewUrl(view: DashboardViewMode) {
+  if (typeof window === 'undefined' || window.location.pathname !== '/') {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', view);
+  window.history.replaceState(null, '', url.toString());
+}
+
+function isDashboardViewMode(value: string | null): value is DashboardViewMode {
+  return value === 'executive' || value === 'service' || value === 'it' || value === 'commercial' || value === 'global';
+}
+
+function distributionDescription(title: string, label: string, count: number) {
+  const plural = count === 1 ? 'registro' : 'registros';
+
+  return `Voce clicou em "${label}" no grafico "${title}". A lista abaixo mostra somente esse grupo: ${count} ${plural}.`;
+}
+
 function getRowsForMetric(label: string, tickets: DemoTicket[]) {
   if (label === 'Tempo medio') {
     return tickets.filter((ticket) => ticket.firstResponseMinutes >= 7 || ticket.waitMinutes >= 7);
@@ -1192,11 +1229,12 @@ function reconcileDrilldownRows(
   fallbackRows: DemoTicket[],
   apiFilters: Record<string, string | number | undefined>,
 ) {
-  if (apiRows.length === 0) {
-    return fallbackRows;
-  }
-
   const hasExtraFilters = Object.values(apiFilters).some((value) => value !== undefined && value !== '');
+  const filteredFallbackRows = hasExtraFilters ? applyClientDrilldownFilters(fallbackRows, apiFilters) : fallbackRows;
+
+  if (apiRows.length === 0) {
+    return filteredFallbackRows;
+  }
 
   if (!hasExtraFilters) {
     return apiRows;
@@ -1204,11 +1242,11 @@ function reconcileDrilldownRows(
 
   const narrowedRows = applyClientDrilldownFilters(apiRows, apiFilters);
 
-  if (narrowedRows.length > 0 || fallbackRows.length === 0) {
+  if (narrowedRows.length > 0) {
     return narrowedRows;
   }
 
-  return fallbackRows;
+  return filteredFallbackRows;
 }
 
 function applyClientDrilldownFilters(rows: DemoTicket[], filters: Record<string, string | number | undefined>) {
