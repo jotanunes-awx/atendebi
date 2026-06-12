@@ -600,6 +600,10 @@ export class IntegrationsService {
           const attendants = await this.fetchBlipAttendants(syncOptions);
           attendantsByIdentity = await this.upsertBlipAttendants(tenantId, attendants);
           importedAttendants = attendantsByIdentity.size;
+
+          if (importedAttendants === 0) {
+            warnings.push('Atendentes BLiP Desk: nenhum atendente retornado pela API /attendants.');
+          }
         } catch (error) {
           warnings.push(`Atendentes BLiP Desk: ${error instanceof Error ? error.message : 'endpoint nao disponivel'}`);
         }
@@ -841,6 +845,12 @@ export class IntegrationsService {
       });
 
       lookup.set(normalizeBlipIdentity(parsed.identity), parsed);
+
+      const email = parsed.email ?? extractEmailFromBlipIdentity(parsed.identity);
+
+      if (email) {
+        lookup.set(normalizeBlipIdentity(email), parsed);
+      }
     }
 
     return lookup;
@@ -1019,7 +1029,20 @@ export class IntegrationsService {
     const direction = inferBlipDirection(message, from, to);
     const sentAt = extractBlipDate(message, rawEvent.receivedAt);
     const queueName = truncate(
-      readFirstString(message, ['queue.name', 'resource.queue.name', 'metadata.queue', 'extras.queue']) ?? `BLiP - ${channel}`,
+      readFirstStringLoose(message, [
+        'queue.name',
+        'resource.queue.name',
+        'metadata.queue',
+        'metadata.queueName',
+        'metadata.team',
+        'metadata.teamName',
+        'metadata.#desk.team',
+        'metadata.#desk.teamName',
+        'metadata.#desk.queue',
+        'metadata.#desk.queueName',
+        'extras.queue',
+        'extras.team',
+      ]) ?? `BLiP - ${channel}`,
       160,
     );
     const agentInfo = extractBlipMessageAgent(message, attendantsByIdentity);
@@ -1175,6 +1198,7 @@ export class IntegrationsService {
           syncSource: source,
           senderRole: direction === MessageDirection.INBOUND ? 'Cliente' : agentName ? 'Atendente' : direction === MessageDirection.OUTBOUND ? 'Bot' : 'Sistema',
           agentIdentity: agentInfo?.identity,
+          agentName,
         },
       },
       create: {
@@ -1195,6 +1219,7 @@ export class IntegrationsService {
           syncSource: source,
           senderRole: direction === MessageDirection.INBOUND ? 'Cliente' : agentName ? 'Atendente' : direction === MessageDirection.OUTBOUND ? 'Bot' : 'Sistema',
           agentIdentity: agentInfo?.identity,
+          agentName,
         },
       },
     });
@@ -1259,7 +1284,7 @@ export class IntegrationsService {
   private getBlipSyncOptions(): BlipSyncOptions {
     const rawContactLimit = Number(this.configService.get<string>('BLIP_SYNC_CONTACT_LIMIT', '200'));
     const rawAttendantLimit = Number(this.configService.get<string>('BLIP_SYNC_ATTENDANT_LIMIT', '1000'));
-    const rawLoggedLimit = Number(this.configService.get<string>('BLIP_SYNC_LOGGED_MESSAGE_LIMIT', '0'));
+    const rawLoggedLimit = Number(this.configService.get<string>('BLIP_SYNC_LOGGED_MESSAGE_LIMIT', '500'));
 
     return {
       contactLimit: Number.isFinite(rawContactLimit) && rawContactLimit > 0 ? clamp(rawContactLimit, 1, 100000) : null,
@@ -1275,7 +1300,7 @@ export class IntegrationsService {
       includeAttendants: this.configService.get<string>('BLIP_SYNC_INCLUDE_ATTENDANTS', 'true') !== 'false',
       includeContacts: this.configService.get<string>('BLIP_SYNC_INCLUDE_CONTACTS', 'true') !== 'false',
       includeThreads: this.configService.get<string>('BLIP_SYNC_INCLUDE_THREADS', 'true') !== 'false',
-      includeLoggedMessages: this.configService.get<string>('BLIP_SYNC_INCLUDE_LOGGED_MESSAGES', 'false') === 'true',
+      includeLoggedMessages: this.configService.get<string>('BLIP_SYNC_INCLUDE_LOGGED_MESSAGES', 'true') !== 'false',
     };
   }
 
@@ -2727,6 +2752,8 @@ function extractBlipAttendant(payload: BlipAttendantPayload): BlipAttendantLooku
     'resource.identity',
     'resource.id',
     'resource.email',
+    'resource.user.email',
+    'resource.account.email',
   ]);
 
   if (!identity) {
@@ -2743,8 +2770,12 @@ function extractBlipAttendant(payload: BlipAttendantPayload): BlipAttendantLooku
       'resource.name',
       'resource.displayName',
       'resource.email',
+      'resource.user.name',
+      'resource.user.fullName',
+      'resource.account.name',
+      'resource.account.fullName',
     ]) ?? humanizeBlipIdentity(identity);
-  const email = readFirstStringLoose(payload, ['email', 'resource.email']);
+  const email = readFirstStringLoose(payload, ['email', 'resource.email', 'resource.user.email', 'resource.account.email']);
 
   return {
     identity,
@@ -2772,10 +2803,36 @@ function extractBlipMessageAgent(
     'metadata.agentName',
     'metadata.attendantName',
     'metadata.operatorName',
+    'metadata.ownerName',
+    'metadata.userName',
+    'metadata.desk.agent',
+    'metadata.desk.attendant',
+    'metadata.desk.operator',
+    'metadata.desk.owner',
+    'metadata.desk.agentName',
+    'metadata.desk.attendantName',
+    'metadata.desk.operatorName',
+    'metadata.desk.ownerName',
     '#desk.agentName',
     '#desk.attendantName',
+    '#desk.operatorName',
+    '#desk.ownerName',
+    '#desk.userName',
     'metadata.#desk.agentName',
     'metadata.#desk.attendantName',
+    'metadata.#desk.operatorName',
+    'metadata.#desk.ownerName',
+    'metadata.#desk.userName',
+    'resource.metadata.agentName',
+    'resource.metadata.attendantName',
+    'resource.metadata.#desk.agentName',
+    'resource.metadata.#desk.attendantName',
+    'message.metadata.agentName',
+    'message.metadata.attendantName',
+    'message.metadata.#desk.agentName',
+    'message.metadata.#desk.attendantName',
+    'extras.agentName',
+    'extras.attendantName',
   ]);
   const identity = readFirstStringLoose(payload, [
     'agent.identity',
@@ -2792,15 +2849,39 @@ function extractBlipMessageAgent(
     'metadata.agentIdentity',
     'metadata.attendantIdentity',
     'metadata.ownerIdentity',
+    'metadata.operatorIdentity',
+    'metadata.userIdentity',
+    'metadata.desk.agentIdentity',
+    'metadata.desk.attendantIdentity',
+    'metadata.desk.operatorIdentity',
+    'metadata.desk.ownerIdentity',
+    'metadata.desk.userIdentity',
     '#desk.agentIdentity',
     '#desk.attendantIdentity',
+    '#desk.operatorIdentity',
+    '#desk.ownerIdentity',
+    '#desk.userIdentity',
     'metadata.#desk.agentIdentity',
     'metadata.#desk.attendantIdentity',
+    'metadata.#desk.operatorIdentity',
+    'metadata.#desk.ownerIdentity',
+    'metadata.#desk.userIdentity',
+    'resource.metadata.agentIdentity',
+    'resource.metadata.attendantIdentity',
+    'resource.metadata.#desk.agentIdentity',
+    'resource.metadata.#desk.attendantIdentity',
+    'message.metadata.agentIdentity',
+    'message.metadata.attendantIdentity',
+    'message.metadata.#desk.agentIdentity',
+    'message.metadata.#desk.attendantIdentity',
+    'extras.agentIdentity',
+    'extras.attendantIdentity',
   ]);
 
   if (identity) {
     const normalized = normalizeBlipIdentity(identity);
-    const found = attendantsByIdentity.get(normalized);
+    const email = extractEmailFromBlipIdentity(identity);
+    const found = attendantsByIdentity.get(normalized) ?? (email ? attendantsByIdentity.get(normalizeBlipIdentity(email)) : undefined);
 
     if (found) {
       return found;
@@ -2963,13 +3044,32 @@ function readFirstValue(payload: Record<string, unknown>, paths: string[]) {
 }
 
 function readPathValue(payload: Record<string, unknown>, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, key) => {
-    if (!current || typeof current !== 'object') {
-      return undefined;
-    }
+  return readFlexiblePathValue(payload, path.split('.'));
+}
 
-    return (current as Record<string, unknown>)[key];
-  }, payload);
+function readFlexiblePathValue(current: unknown, segments: string[]): unknown {
+  if (!current || typeof current !== 'object' || segments.length === 0) {
+    return undefined;
+  }
+
+  const record = current as Record<string, unknown>;
+  const literalKey = segments.join('.');
+
+  if (Object.prototype.hasOwnProperty.call(record, literalKey)) {
+    return record[literalKey];
+  }
+
+  const [head, ...tail] = segments;
+
+  if (!head) {
+    return undefined;
+  }
+
+  if (tail.length === 0) {
+    return record[head];
+  }
+
+  return readFlexiblePathValue(record[head], tail);
 }
 
 function isLikelyBlipCustomerAddress(value: string) {

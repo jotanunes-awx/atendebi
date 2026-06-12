@@ -211,6 +211,7 @@ export class EventProcessingProcessor extends WorkerHost {
               source: 'BLIP',
               eventType: normalized.eventType,
               senderRole: inferSenderRole(normalized.direction),
+              agentName: normalized.agentName,
             },
           },
           update: {
@@ -295,7 +296,21 @@ function normalizeBlipPayload(
   const sentAt = extractDate(payload, fallback.receivedAt);
   const channel = inferChannel(payload, contactExternalId);
   const queueName = truncate(
-    extractString(payload, ['queue.name', 'resource.queue.name', 'resource.queue', 'extras.queue', 'metadata.queue']),
+    extractString(payload, [
+      'queue.name',
+      'resource.queue.name',
+      'resource.queue',
+      'extras.queue',
+      'extras.team',
+      'metadata.queue',
+      'metadata.queueName',
+      'metadata.team',
+      'metadata.teamName',
+      'metadata.#desk.queue',
+      'metadata.#desk.queueName',
+      'metadata.#desk.team',
+      'metadata.#desk.teamName',
+    ]),
     160,
   );
   const agentName = truncate(
@@ -306,6 +321,22 @@ function normalizeBlipPayload(
       'resource.agent.name',
       'resource.attendant.name',
       'metadata.agent',
+      'metadata.agentName',
+      'metadata.attendant',
+      'metadata.attendantName',
+      'metadata.operator',
+      'metadata.operatorName',
+      'metadata.#desk.agentName',
+      'metadata.#desk.attendantName',
+      'metadata.#desk.operatorName',
+      'metadata.desk.agentName',
+      'metadata.desk.attendantName',
+      'resource.metadata.#desk.agentName',
+      'resource.metadata.#desk.attendantName',
+      'message.metadata.#desk.agentName',
+      'message.metadata.#desk.attendantName',
+      'extras.agentName',
+      'extras.attendantName',
     ]),
     160,
   );
@@ -388,13 +419,32 @@ function readFirst(payload: RawPayload, paths: string[]) {
 }
 
 function readPath(payload: RawPayload, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, key) => {
-    if (!current || typeof current !== 'object') {
-      return undefined;
-    }
+  return readFlexiblePath(payload, path.split('.'));
+}
 
-    return (current as RawPayload)[key];
-  }, payload);
+function readFlexiblePath(current: unknown, segments: string[]): unknown {
+  if (!current || typeof current !== 'object' || segments.length === 0) {
+    return undefined;
+  }
+
+  const record = current as RawPayload;
+  const literalKey = segments.join('.');
+
+  if (Object.prototype.hasOwnProperty.call(record, literalKey)) {
+    return record[literalKey];
+  }
+
+  const [head, ...tail] = segments;
+
+  if (!head) {
+    return undefined;
+  }
+
+  if (tail.length === 0) {
+    return record[head];
+  }
+
+  return readFlexiblePath(record[head], tail);
 }
 
 function pickContactIdentity(payload: RawPayload, from?: string, to?: string) {

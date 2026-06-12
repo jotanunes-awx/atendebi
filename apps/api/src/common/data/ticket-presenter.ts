@@ -247,12 +247,12 @@ function inferPresentedSenderRole(direction: MessageDirection, contentLabel?: st
     return 'Cliente';
   }
 
-  if (contentLabel?.toLowerCase().includes('template')) {
-    return 'Bot';
-  }
-
   if (metadataRole && !['Atendente/Bot', 'Sistema'].includes(metadataRole)) {
     return metadataRole;
+  }
+
+  if (contentLabel?.toLowerCase().includes('template')) {
+    return 'Bot';
   }
 
   return 'Atendente/Bot';
@@ -348,8 +348,14 @@ function formatStructuredContent(value: unknown): { label: string; content: stri
     'content.body',
     'interactive.body.text',
     'interactive.header.text',
+    'interactive.footer.text',
+    'interactive.action.button',
     'resource.text',
     'resource.title',
+    'resource.body',
+    'resource.content.text',
+    'replied.value',
+    'replied.text',
   ]);
 
   if (options.length > 0) {
@@ -423,7 +429,7 @@ function summarizeRecord(record: Record<string, unknown>) {
 }
 
 function unwrapStructuredRecord(record: Record<string, unknown>) {
-  const candidates = ['content', 'value', 'resource', 'message'];
+  const candidates = ['content', 'value', 'resource', 'message', 'payload'];
 
   for (const key of candidates) {
     const value = record[key];
@@ -446,20 +452,27 @@ function unwrapStructuredRecord(record: Record<string, unknown>) {
 
 function collectInteractiveOptions(record: Record<string, unknown>) {
   const options: string[] = [];
-  const paths = ['options', 'buttons', 'actions', 'items', 'rows', 'content.options', 'content.buttons', 'interactive.action.buttons'];
+  const paths = [
+    'options',
+    'buttons',
+    'actions',
+    'items',
+    'rows',
+    'content.options',
+    'content.buttons',
+    'content.interactive.action.buttons',
+    'content.interactive.action.sections',
+    'interactive.action.buttons',
+    'interactive.action.sections',
+    'resource.options',
+    'resource.buttons',
+    'resource.interactive.action.buttons',
+    'resource.interactive.action.sections',
+  ];
 
   for (const path of paths) {
     const value = readPathValue(record, path);
     collectOptionLabels(value, options);
-  }
-
-  const sections = readPathValue(record, 'interactive.action.sections');
-
-  if (Array.isArray(sections)) {
-    for (const section of sections) {
-      const sectionRecord = asRecord(section);
-      collectOptionLabels(sectionRecord.rows, options);
-    }
   }
 
   return Array.from(new Set(options)).slice(0, 12);
@@ -473,6 +486,13 @@ function collectOptionLabels(value: unknown, options: string[]) {
   for (const item of value) {
     const record = asRecord(item);
     const reply = asRecord(record.reply);
+    const sectionRows = record.rows;
+
+    if (Array.isArray(sectionRows)) {
+      collectOptionLabels(sectionRows, options);
+      continue;
+    }
+
     const label =
       readString(record, 'text', '') ||
       readString(record, 'title', '') ||
@@ -506,11 +526,30 @@ function readFirstNestedString(record: Record<string, unknown>, paths: string[])
 }
 
 function readPathValue(record: Record<string, unknown>, path: string) {
-  return path.split('.').reduce<unknown>((current, key) => {
-    if (!current || typeof current !== 'object') {
-      return undefined;
-    }
+  return readFlexiblePathValue(record, path.split('.'));
+}
 
-    return (current as Record<string, unknown>)[key];
-  }, record);
+function readFlexiblePathValue(current: unknown, segments: string[]): unknown {
+  if (!current || typeof current !== 'object' || segments.length === 0) {
+    return undefined;
+  }
+
+  const record = current as Record<string, unknown>;
+  const literalKey = segments.join('.');
+
+  if (Object.prototype.hasOwnProperty.call(record, literalKey)) {
+    return record[literalKey];
+  }
+
+  const [head, ...tail] = segments;
+
+  if (!head) {
+    return undefined;
+  }
+
+  if (tail.length === 0) {
+    return record[head];
+  }
+
+  return readFlexiblePathValue(record[head], tail);
 }

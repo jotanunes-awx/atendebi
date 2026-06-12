@@ -71,6 +71,18 @@ export function ConversationTimeline({ messages }: { messages: ConversationMessa
 }
 
 function formatTimelineContent(message: ConversationMessage) {
+  const parsed = tryParseJson(message.content.trim());
+
+  if (parsed) {
+    return formatStructuredContent(parsed);
+  }
+
+  const parsedRaw = message.rawContent ? tryParseJson(message.rawContent.trim()) : null;
+
+  if (parsedRaw) {
+    return formatStructuredContent(parsedRaw);
+  }
+
   if (message.isStructured || message.contentLabel) {
     return {
       label: message.contentLabel,
@@ -78,16 +90,10 @@ function formatTimelineContent(message: ConversationMessage) {
     };
   }
 
-  const parsed = tryParseJson(message.content.trim());
-
-  if (!parsed) {
-    return {
-      label: '',
-      content: message.content,
-    };
-  }
-
-  return formatStructuredContent(parsed);
+  return {
+    label: '',
+    content: message.content,
+  };
 }
 
 function tryParseJson(value: string): unknown | null {
@@ -157,8 +163,14 @@ function formatStructuredContent(value: unknown): { label: string; content: stri
       'content.body',
       'interactive.body.text',
       'interactive.header.text',
+      'interactive.footer.text',
+      'interactive.action.button',
       'resource.text',
       'resource.title',
+      'resource.body',
+      'resource.content.text',
+      'replied.value',
+      'replied.text',
     ]) ?? undefined;
 
   if (options.length > 0) {
@@ -234,7 +246,7 @@ function toRecord(value: unknown): Record<string, unknown> {
 }
 
 function unwrapStructuredRecord(record: Record<string, unknown>) {
-  const candidates = ['content', 'value', 'resource', 'message'];
+  const candidates = ['content', 'value', 'resource', 'message', 'payload'];
 
   for (const key of candidates) {
     const value = record[key];
@@ -257,18 +269,26 @@ function unwrapStructuredRecord(record: Record<string, unknown>) {
 
 function collectInteractiveOptions(record: Record<string, unknown>) {
   const options: string[] = [];
-  const paths = ['options', 'buttons', 'actions', 'items', 'rows', 'content.options', 'content.buttons', 'interactive.action.buttons'];
+  const paths = [
+    'options',
+    'buttons',
+    'actions',
+    'items',
+    'rows',
+    'content.options',
+    'content.buttons',
+    'content.interactive.action.buttons',
+    'content.interactive.action.sections',
+    'interactive.action.buttons',
+    'interactive.action.sections',
+    'resource.options',
+    'resource.buttons',
+    'resource.interactive.action.buttons',
+    'resource.interactive.action.sections',
+  ];
 
   for (const path of paths) {
     collectOptionLabels(readPathValue(record, path), options);
-  }
-
-  const sections = readPathValue(record, 'interactive.action.sections');
-
-  if (Array.isArray(sections)) {
-    for (const section of sections) {
-      collectOptionLabels(toRecord(section).rows, options);
-    }
   }
 
   return Array.from(new Set(options)).slice(0, 12);
@@ -282,6 +302,13 @@ function collectOptionLabels(value: unknown, options: string[]) {
   for (const item of value) {
     const record = toRecord(item);
     const reply = toRecord(record.reply);
+    const sectionRows = record.rows;
+
+    if (Array.isArray(sectionRows)) {
+      collectOptionLabels(sectionRows, options);
+      continue;
+    }
+
     const label =
       readText(record, ['text', 'title', 'label', 'name']) ??
       readText(reply, ['title', 'text']);
@@ -299,11 +326,30 @@ function humanizeTemplateName(name: string) {
 }
 
 function readPathValue(record: Record<string, unknown>, path: string) {
-  return path.split('.').reduce<unknown>((current, key) => {
-    if (!current || typeof current !== 'object') {
-      return undefined;
-    }
+  return readFlexiblePathValue(record, path.split('.'));
+}
 
-    return (current as Record<string, unknown>)[key];
-  }, record);
+function readFlexiblePathValue(current: unknown, segments: string[]): unknown {
+  if (!current || typeof current !== 'object' || segments.length === 0) {
+    return undefined;
+  }
+
+  const record = current as Record<string, unknown>;
+  const literalKey = segments.join('.');
+
+  if (Object.prototype.hasOwnProperty.call(record, literalKey)) {
+    return record[literalKey];
+  }
+
+  const [head, ...tail] = segments;
+
+  if (!head) {
+    return undefined;
+  }
+
+  if (tail.length === 0) {
+    return record[head];
+  }
+
+  return readFlexiblePathValue(record[head], tail);
 }
