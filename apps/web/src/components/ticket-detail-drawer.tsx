@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -54,6 +55,27 @@ export function TicketDetailDrawer({ ticket, contextLabel, onClose }: TicketDeta
   const messages = ticket ? messagesQuery.data?.data ?? [] : [];
   const investigation = ticket ? buildInvestigation(ticket) : [];
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, onClose]);
+
   return (
     <>
       <div
@@ -69,6 +91,9 @@ export function TicketDetailDrawer({ ticket, contextLabel, onClose }: TicketDeta
           'fixed right-0 top-0 z-[70] flex h-dvh w-full max-w-3xl flex-col border-l border-border bg-card text-card-foreground shadow-2xl transition-transform duration-200',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
+        role="dialog"
+        aria-modal={open}
+        aria-label={ticket ? `Detalhe do atendimento ${ticket.customerName}` : undefined}
         aria-hidden={!open}
       >
         {ticket ? (

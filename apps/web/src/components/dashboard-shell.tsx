@@ -23,6 +23,7 @@ import {
   ShoppingCart,
   Sparkles,
   UsersRound,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -71,12 +72,40 @@ export function DashboardShell({ children }: DashboardShellProps) {
   const experience = getUserExperience(user);
   const visibleNavItems = navItems.filter((item) => experience.visibleNav.includes(item.href));
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [activeDashboardView, setActiveDashboardView] = useState<DashboardViewMode | null>(null);
 
   useEffect(() => {
     setCollapsed(window.localStorage.getItem('atendebi-sidebar-collapsed') === 'true');
     setActiveDashboardView(readDashboardViewFromUrl());
   }, []);
+
+  // Fecha o menu mobile ao trocar de rota.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  // Enquanto o drawer mobile estiver aberto, trava o scroll de fundo e permite fechar com Esc.
+  useEffect(() => {
+    if (!mobileOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileOpen]);
 
   function toggleSidebar() {
     setCollapsed((current) => {
@@ -114,9 +143,17 @@ export function DashboardShell({ children }: DashboardShellProps) {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_32rem),linear-gradient(180deg,hsl(var(--background)),hsl(var(--secondary)))] text-foreground">
       <div className="flex min-h-screen flex-col md:flex-row">
+        {mobileOpen ? (
+          <div
+            className="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-sm md:hidden"
+            aria-hidden="true"
+            onClick={() => setMobileOpen(false)}
+          />
+        ) : null}
         <aside
           className={cn(
-            'border-b border-white/10 bg-[linear-gradient(180deg,#1f3f86,#11265c_48%,#0d1d49)] text-white shadow-[0_24px_60px_rgba(15,23,42,0.18)] transition-[width] duration-300 md:sticky md:top-0 md:h-screen',
+            'fixed inset-y-0 left-0 z-50 flex w-[17rem] max-w-[85vw] flex-col overflow-y-auto bg-[linear-gradient(180deg,#1f3f86,#11265c_48%,#0d1d49)] text-white shadow-[0_24px_60px_rgba(15,23,42,0.18)] transition-transform duration-300 md:sticky md:top-0 md:z-auto md:h-screen md:max-w-none md:translate-x-0 md:overflow-visible md:transition-[width]',
+            mobileOpen ? 'translate-x-0' : '-translate-x-full',
             collapsed ? 'md:w-[5.75rem]' : 'md:w-[20.5rem]',
           )}
         >
@@ -143,19 +180,24 @@ export function DashboardShell({ children }: DashboardShellProps) {
             >
               {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
             </button>
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl text-sky-100/80 md:hidden">
-              <Menu className="h-5 w-5" aria-hidden="true" />
-            </span>
+            <button
+              type="button"
+              onClick={() => setMobileOpen(false)}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/10 text-sky-100/80 transition hover:bg-white/15 md:hidden"
+              aria-label="Fechar menu lateral"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
           </div>
 
-          <div className={cn('hidden px-6 pb-8 md:block', collapsed && 'md:hidden')}>
+          <div className={cn('px-6 pb-6 md:pb-8', collapsed && 'md:hidden')}>
             <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 shadow-inner shadow-white/5 backdrop-blur">
               <span className="block text-sm font-semibold text-white">{user?.tenant ?? 'Jotanunes'}</span>
               <span className="mt-1 block text-xs text-sky-100/75">{experience.audienceLabel}</span>
             </div>
           </div>
 
-          <nav className={cn('flex gap-2 overflow-x-auto px-4 pb-4 md:block md:overflow-visible', collapsed ? 'md:px-3' : 'md:space-y-7 md:px-6')}>
+          <nav className={cn('space-y-6 px-4 pb-4 md:overflow-visible', collapsed ? 'md:space-y-2 md:px-3' : 'md:space-y-7 md:px-6')}>
             {navGroups.map((group) => {
               const groupedItems = visibleNavItems.filter((item) => group.items.includes(item.href));
 
@@ -164,11 +206,11 @@ export function DashboardShell({ children }: DashboardShellProps) {
               }
 
               return (
-                <div key={group.label} className="shrink-0 md:shrink">
-                  <p className={cn('mb-2 hidden text-[0.68rem] font-bold uppercase tracking-[0.18em] text-sky-100/45 md:block', collapsed && 'md:hidden')}>
+                <div key={group.label}>
+                  <p className={cn('mb-2 text-[0.68rem] font-bold uppercase tracking-[0.18em] text-sky-100/45', collapsed && 'md:hidden')}>
                     {group.label}
                   </p>
-                  <div className={cn('flex gap-2 md:block', !collapsed && 'md:space-y-1.5', collapsed && 'md:space-y-2')}>
+                  <div className={cn('space-y-1.5', collapsed && 'md:space-y-2')}>
                     {groupedItems.map((item) => {
                       const isActive = item.href === '/' ? pathname === '/' : pathname?.startsWith(item.href);
                       return (
@@ -177,7 +219,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
                           href={item.href}
                           title={collapsed ? item.label : undefined}
                           className={cn(
-                            'group flex h-11 shrink-0 items-center rounded-2xl text-sm font-semibold text-sky-100/75 transition-all duration-200 hover:bg-white/12 hover:text-white md:w-full',
+                            'group flex h-11 w-full items-center rounded-2xl text-sm font-semibold text-sky-100/75 transition-all duration-200 hover:bg-white/12 hover:text-white',
                             collapsed ? 'justify-center px-0' : 'gap-3 px-3',
                             isActive && 'bg-white text-[#17326f] shadow-[0_14px_36px_rgba(0,0,0,0.18)] hover:bg-white hover:text-[#17326f]',
                           )}
@@ -254,9 +296,10 @@ export function DashboardShell({ children }: DashboardShellProps) {
               <div className="flex min-w-0 items-center gap-3">
                 <button
                   type="button"
-                  onClick={toggleSidebar}
+                  onClick={() => setMobileOpen(true)}
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border bg-card text-sky-600 shadow-sm md:hidden"
-                  aria-label="Alternar menu lateral"
+                  aria-label="Abrir menu lateral"
+                  aria-expanded={mobileOpen}
                 >
                   <Menu className="h-5 w-5" aria-hidden="true" />
                 </button>

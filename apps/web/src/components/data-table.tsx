@@ -58,7 +58,7 @@ export function DataTable<T>({
             <thead className="sticky top-0 z-10 bg-secondary text-left text-xs uppercase text-muted-foreground">
               <tr>
                 {columns.map((column) => (
-                  <th key={column.key} className={cn('border-b border-border px-3 py-3 font-semibold', column.className)}>
+                  <th key={column.key} scope="col" className={cn('border-b border-border px-3 py-3 font-semibold', column.className)}>
                     {column.header}
                   </th>
                 ))}

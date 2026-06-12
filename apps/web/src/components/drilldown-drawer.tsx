@@ -1,6 +1,7 @@
 'use client';
 
 import { Download, ExternalLink, FileText, X } from 'lucide-react';
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { cn } from '@/lib/utils';
@@ -32,6 +33,27 @@ export function DrilldownDrawer<T>({
 }: DrilldownDrawerProps<T>) {
   const exportBaseName = slugify(title || 'atendebi-detalhe');
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, onClose]);
+
   return (
     <>
       <div
@@ -47,6 +69,9 @@ export function DrilldownDrawer<T>({
           'fixed right-0 top-0 z-50 flex h-dvh w-full max-w-4xl flex-col border-l border-border bg-card text-card-foreground shadow-2xl transition-transform duration-200',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
+        role="dialog"
+        aria-modal={open}
+        aria-label={title}
         aria-hidden={!open}
       >
         <div className="border-b border-border px-5 py-4">
