@@ -95,6 +95,9 @@ export class IntegrationsService {
     @InjectQueue(INTEGRATION_SYNC_QUEUE) private readonly integrationSyncQueue: Queue<IntegrationSyncJob>,
   ) {}
 
+  /** Cache do token client_credentials do Microsoft Graph (valido ~60 min). */
+  private teamsTokenCache: { key: string; token: string; expiresAt: number } | null = null;
+
   async list(tenantHeader?: string) {
     const tenantId = await this.tenantContext.resolveTenantId(tenantHeader);
 
@@ -909,20 +912,24 @@ export class IntegrationsService {
 
   private async sendBlipCommand(to: string, method: 'get' | 'set' | 'delete', uri: string, resource?: unknown) {
     const { commandsUrl, key } = this.getBlipConfig();
-    const response = await fetch(commandsUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Key ${key}`,
-        'Content-Type': 'application/json',
+    const response = await fetchWithRetry(
+      commandsUrl,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Key ${key}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: randomUUID(),
+          to,
+          method,
+          uri,
+          ...(resource ? { resource } : {}),
+        }),
       },
-      body: JSON.stringify({
-        id: randomUUID(),
-        to,
-        method,
-        uri,
-        ...(resource ? { resource } : {}),
-      }),
-    });
+      this.getBlipRequestTimeoutMs(),
+    );
 
     const bodyText = await response.text();
 
@@ -1286,6 +1293,12 @@ export class IntegrationsService {
     };
   }
 
+  private getBlipRequestTimeoutMs() {
+    const value = Number(this.configService.get<string>('BLIP_REQUEST_TIMEOUT_MS', '20000'));
+
+    return Number.isFinite(value) && value > 0 ? value : 20000;
+  }
+
   private getBlipSyncOptions(): BlipSyncOptions {
     const rawContactLimit = Number(this.configService.get<string>('BLIP_SYNC_CONTACT_LIMIT', '200'));
     const rawAttendantLimit = Number(this.configService.get<string>('BLIP_SYNC_ATTENDANT_LIMIT', '1000'));
@@ -1554,7 +1567,7 @@ export class IntegrationsService {
 
   private async openGlpiSession() {
     const { apiBaseUrl, appToken, userToken } = this.getGlpiConfig();
-    const response = await fetchWithTimeout(
+    const response = await fetchWithRetry(
       `${apiBaseUrl}/initSession`,
       {
         method: 'GET',
@@ -1612,7 +1625,7 @@ export class IntegrationsService {
         order: 'DESC',
         expand_dropdowns: 'true',
       });
-      const response = await fetchWithTimeout(
+      const response = await fetchWithRetry(
         `${apiBaseUrl}/Ticket?${params.toString()}`,
         {
           method: 'GET',
@@ -1705,7 +1718,7 @@ export class IntegrationsService {
     const { apiBaseUrl, appToken } = this.getGlpiConfig();
 
     try {
-      const response = await fetchWithTimeout(
+      const response = await fetchWithRetry(
         `${apiBaseUrl}/${path}`,
         {
           method: 'GET',
@@ -1715,6 +1728,7 @@ export class IntegrationsService {
           },
         },
         this.getGlpiRequestTimeoutMs(),
+        { attempts: 2 },
       );
 
       if (!response.ok) {
@@ -2101,31 +2115,55 @@ export class IntegrationsService {
 
   private async getTeamsGraphToken() {
     const { tenantId, clientId, clientSecret } = this.getTeamsConfig();
-    const response = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+    const cacheKey = `${tenantId}:${clientId}`;
+    const now = Date.now();
+
+    if (this.teamsTokenCache && this.teamsTokenCache.key === cacheKey && this.teamsTokenCache.expiresAt > now + 60_000) {
+      return this.teamsTokenCache.token;
+    }
+
+    const response = await fetchWithRetry(
+      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          scope: 'https://graph.microsoft.com/.default',
+          grant_type: 'client_credentials',
+        }),
       },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        scope: 'https://graph.microsoft.com/.default',
-        grant_type: 'client_credentials',
-      }),
-    });
+      this.getTeamsRequestTimeoutMs(),
+    );
 
     if (!response.ok) {
       const body = await response.text();
       throw new Error(`Entra ID nao emitiu token para Teams Phone. Status ${response.status}: ${truncate(body, 240)}`);
     }
 
-    const body = (await response.json()) as { access_token?: string };
+    const body = (await response.json()) as { access_token?: string; expires_in?: number };
 
     if (!body.access_token) {
       throw new Error('Entra ID nao retornou access_token para Microsoft Graph.');
     }
 
+    const expiresInSeconds = typeof body.expires_in === 'number' && body.expires_in > 0 ? body.expires_in : 3600;
+    this.teamsTokenCache = {
+      key: cacheKey,
+      token: body.access_token,
+      expiresAt: now + expiresInSeconds * 1000,
+    };
+
     return body.access_token;
+  }
+
+  private getTeamsRequestTimeoutMs() {
+    const value = Number(this.configService.get<string>('TEAMS_REQUEST_TIMEOUT_MS', '20000'));
+
+    return Number.isFinite(value) && value > 0 ? value : 20000;
   }
 
   private async probeTeamsEndpoint(token: string, source: TeamsCallBatch['source']) {
@@ -2194,12 +2232,16 @@ export class IntegrationsService {
     const rows: Record<string, unknown>[] = [];
 
     for (let page = 0; page < maxPages && url; page += 1) {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
+      const response = await fetchWithRetry(
+        url,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         },
-      });
+        this.getTeamsRequestTimeoutMs(),
+      );
 
       if (!response.ok) {
         const body = await response.text();
@@ -3788,6 +3830,53 @@ function sleep(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+const RETRYABLE_HTTP_STATUS = new Set([429, 500, 502, 503, 504]);
+
+/**
+ * fetch com timeout e retry exponencial para falhas transitorias (rede,
+ * timeout, 429/5xx). Respeita o header Retry-After quando presente.
+ */
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  options: { attempts?: number; baseDelayMs?: number } = {},
+) {
+  const attempts = options.attempts ?? 3;
+  const baseDelayMs = options.baseDelayMs ?? 500;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(url, init, timeoutMs);
+
+      if (RETRYABLE_HTTP_STATUS.has(response.status) && attempt < attempts) {
+        const retryAfterSeconds = Number(response.headers.get('retry-after'));
+        const delayMs =
+          Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+            ? Math.min(retryAfterSeconds * 1000, 15000)
+            : baseDelayMs * 2 ** (attempt - 1);
+
+        await response.text().catch(() => undefined);
+        await sleep(delayMs);
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error;
+
+      if (attempt >= attempts) {
+        throw error;
+      }
+
+      await sleep(baseDelayMs * 2 ** (attempt - 1));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`Falha ao chamar ${url} apos ${attempts} tentativas.`);
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
