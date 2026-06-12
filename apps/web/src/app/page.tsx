@@ -120,6 +120,12 @@ const dashboardPeriodOptions = [
   { value: 'all', label: 'Todo historico' },
 ];
 
+const compactNumberFormatter = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
+
+function compactNumber(value: number) {
+  return Number.isFinite(value) ? compactNumberFormatter.format(value) : '0';
+}
+
 function RatingStars({ rating }: { rating: number }) {
   return (
     <div className="flex items-center gap-1" aria-label={`Nota media ${rating} de 5`}>
@@ -203,7 +209,7 @@ function InsightPieCard({
           </ResponsiveContainer>
         </div>
       ) : (
-        <div className="mt-3 h-52 min-h-[208px] w-full rounded-md bg-muted" />
+        <div className="mt-3 h-52 min-h-[208px] w-full animate-pulse rounded-md bg-muted" />
       )}
 
       <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -604,7 +610,14 @@ export default function Home() {
                 >
                   <CartesianGrid stroke={isDark ? 'rgba(148, 163, 184, 0.25)' : '#e4e4e7'} strokeDasharray="3 3" />
                   <XAxis dataKey="hour" tickLine={false} axisLine={false} tick={{ fill: isDark ? '#cbd5e1' : '#475569' }} />
-                  <YAxis tickLine={false} axisLine={false} tick={{ fill: isDark ? '#cbd5e1' : '#475569' }} />
+                  <YAxis
+                    width={36}
+                    allowDecimals={false}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: isDark ? '#cbd5e1' : '#475569' }}
+                    tickFormatter={(value) => compactNumber(Number(value))}
+                  />
                   <Tooltip
                     wrapperStyle={{ outline: 'none' }}
                     contentStyle={{
@@ -613,6 +626,7 @@ export default function Home() {
                       color: isDark ? '#f8fafc' : '#0f172a',
                     }}
                     labelStyle={{ color: isDark ? '#94a3b8' : '#475569' }}
+                    formatter={(value) => [`${Number(value ?? 0)} tickets`, 'Volume']}
                   />
                   <Line
                     type="monotone"
@@ -625,7 +639,7 @@ export default function Home() {
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full rounded-md bg-muted" />
+              <div className="h-full animate-pulse rounded-md bg-muted" />
             )}
           </div>
         </section>
@@ -672,7 +686,7 @@ export default function Home() {
                 ) : null}
               </div>
             ) : (
-              <div className="h-full rounded-md bg-muted" />
+              <div className="h-full animate-pulse rounded-md bg-muted" />
             )}
           </div>
         </section>

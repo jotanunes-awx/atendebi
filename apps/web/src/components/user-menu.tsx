@@ -36,7 +36,7 @@ export function UserMenu() {
   }, []);
 
   if (!isReady) {
-    return <div className="h-9 w-28 rounded-md border border-border bg-muted" aria-hidden="true" />;
+    return <div className="h-9 w-28 animate-pulse rounded-md border border-border bg-muted" aria-hidden="true" />;
   }
 
   if (!isAuthenticated || !user) {
