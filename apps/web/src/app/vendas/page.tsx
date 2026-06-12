@@ -7,6 +7,7 @@ import { DashboardShell } from '@/components/dashboard-shell';
 import { DataTable } from '@/components/data-table';
 import { DrilldownDrawer } from '@/components/drilldown-drawer';
 import { MetricCard } from '@/components/metric-card';
+import { PeriodSelect } from '@/components/period-select';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { getSalesOverview, getTickets, type SalesOverview } from '@/lib/api-client';
@@ -31,13 +32,14 @@ const emptySalesOverview: SalesOverview = {
 export default function VendasPage() {
   const [drawer, setDrawer] = useState<SalesDrawer | null>(null);
   const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
+  const [period, setPeriod] = useState('30d');
   const salesQuery = useQuery({
-    queryKey: ['sales-overview'],
-    queryFn: getSalesOverview,
+    queryKey: ['sales-overview', period],
+    queryFn: () => getSalesOverview(period),
   });
   const ticketsQuery = useQuery({
-    queryKey: ['sales-tickets'],
-    queryFn: () => getTickets({ pageSize: 200 }),
+    queryKey: ['sales-tickets', period],
+    queryFn: () => getTickets({ pageSize: 200, period }),
   });
 
   const apiTickets = ticketsQuery.data?.data ?? [];
@@ -62,13 +64,19 @@ export default function VendasPage() {
     <DashboardShell>
       <section className="space-y-6">
         <div className="rounded-lg border border-border bg-card p-6 shadow-panel">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Inteligencia comercial</p>
-          <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Vendas</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Encontre conversas com intencao de compra, propostas solicitadas e perdas por demora sem transformar o AtendeBI em CRM.
-          </p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Inteligencia comercial</p>
+              <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Vendas</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                Encontre conversas com intencao de compra, propostas solicitadas e perdas por demora sem transformar o AtendeBI em CRM.
+              </p>
+            </div>
+            <PeriodSelect value={period} onChange={setPeriod} />
+          </div>
           <p className="mt-4 text-xs font-semibold text-primary">
             Fonte: {salesQuery.isLoading || ticketsQuery.isLoading ? 'Carregando API' : salesQuery.isError || ticketsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
+            {overview.periodLabel ? ` · ${overview.periodLabel}` : ''}
           </p>
         </div>
 

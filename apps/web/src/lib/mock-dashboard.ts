@@ -227,6 +227,62 @@ export const distributionCharts: DashboardDistributionChart[] = [
   },
 ];
 
+export type ProviderSummary = {
+  provider: string;
+  label: string;
+  total: number;
+  open: number;
+  detail: string;
+};
+
+export type TeamsPhoneStats = {
+  totalCalls: number;
+  answered: number;
+  missed: number;
+  missedRate: number;
+  totalMinutes: number;
+  averageMinutes: number;
+  hourly: Array<{ hour: string; atendidas: number; perdidas: number }>;
+};
+
+export type GlpiBacklogItem = {
+  category: string;
+  total: number;
+  open: number;
+};
+
+export const providerSummaries: ProviderSummary[] = [
+  { provider: 'BLIP', label: 'BLiP', total: 96, open: 34, detail: '34 conversas em andamento' },
+  { provider: 'GLPI', label: 'GLPI', total: 65, open: 28, detail: '28 chamados em aberto' },
+  { provider: 'TEAMS_PHONE', label: 'Teams Phone', total: 25, open: 0, detail: '6 chamadas perdidas' },
+];
+
+export const teamsPhoneStats: TeamsPhoneStats = {
+  totalCalls: 25,
+  answered: 19,
+  missed: 6,
+  missedRate: 24,
+  totalMinutes: 84,
+  averageMinutes: 4.4,
+  hourly: [
+    { hour: '08h', atendidas: 2, perdidas: 1 },
+    { hour: '09h', atendidas: 4, perdidas: 1 },
+    { hour: '10h', atendidas: 3, perdidas: 0 },
+    { hour: '11h', atendidas: 2, perdidas: 2 },
+    { hour: '14h', atendidas: 4, perdidas: 1 },
+    { hour: '15h', atendidas: 2, perdidas: 1 },
+    { hour: '16h', atendidas: 2, perdidas: 0 },
+  ],
+};
+
+export const glpiBacklog: GlpiBacklogItem[] = [
+  { category: 'Infraestrutura', total: 18, open: 9 },
+  { category: 'Sistemas internos', total: 14, open: 7 },
+  { category: 'Acessos e contas', total: 12, open: 6 },
+  { category: 'Equipamentos', total: 11, open: 4 },
+  { category: 'Telefonia', total: 10, open: 2 },
+];
+
 export const conversations = [
   {
     id: 'ticket-1001',
@@ -279,6 +335,9 @@ export type DashboardOverview = {
   metrics: DashboardMetric[];
   hourlyTicketVolume: HourlyTicketVolumeItem[];
   queueAttentionData: QueueAttentionItem[];
+  providerSummaries: ProviderSummary[];
+  teamsPhoneStats: TeamsPhoneStats;
+  glpiBacklog: GlpiBacklogItem[];
   qualitySummary: QualitySummary;
   qualitySignals: QualitySignal[];
   operationalRisks: OperationalRisk[];
@@ -298,6 +357,9 @@ export const mockDashboardOverview: DashboardOverview = {
   metrics: dashboardMetrics,
   hourlyTicketVolume,
   queueAttentionData,
+  providerSummaries,
+  teamsPhoneStats,
+  glpiBacklog,
   qualitySummary,
   qualitySignals,
   operationalRisks,

@@ -11,6 +11,7 @@ export type DemoTicket = {
   displayId?: string;
   provider?: string;
   providerLabel?: string;
+  category?: string;
   customerContact: string;
   queue: string;
   agent: string;

@@ -168,6 +168,8 @@ export async function getAgent(id: string): Promise<AgentItem> {
 }
 
 export type QualityOverview = {
+  period?: string;
+  periodLabel?: string;
   averageRating: number;
   totalRated: number;
   lowRated: number;
@@ -187,6 +189,8 @@ export type QualityOverview = {
 };
 
 export type BotOverview = {
+  period?: string;
+  periodLabel?: string;
   fallbackRate: number;
   humanRequests: number;
   abandonedFlows: number;
@@ -209,6 +213,8 @@ export type BotOverview = {
 };
 
 export type SalesOverview = {
+  period?: string;
+  periodLabel?: string;
   opportunities: number;
   leads: number;
   proposals: number;
@@ -334,8 +340,8 @@ export type SettingsOverview = {
   } | null;
 };
 
-export async function getQualityOverview(): Promise<QualityOverview> {
-  const response = await fetch(`${apiBaseUrl}/quality/overview`, {
+export async function getQualityOverview(period?: string): Promise<QualityOverview> {
+  const response = await fetch(`${apiBaseUrl}/quality/overview${toQueryString({ period })}`, {
     headers: await getRequestHeaders(),
   });
 
@@ -346,8 +352,8 @@ export async function getQualityOverview(): Promise<QualityOverview> {
   return response.json();
 }
 
-export async function getBotOverview(): Promise<BotOverview> {
-  const response = await fetch(`${apiBaseUrl}/bot/overview`, {
+export async function getBotOverview(period?: string): Promise<BotOverview> {
+  const response = await fetch(`${apiBaseUrl}/bot/overview${toQueryString({ period })}`, {
     headers: await getRequestHeaders(),
   });
 
@@ -358,8 +364,8 @@ export async function getBotOverview(): Promise<BotOverview> {
   return response.json();
 }
 
-export async function getSalesOverview(): Promise<SalesOverview> {
-  const response = await fetch(`${apiBaseUrl}/sales/overview`, {
+export async function getSalesOverview(period?: string): Promise<SalesOverview> {
+  const response = await fetch(`${apiBaseUrl}/sales/overview${toQueryString({ period })}`, {
     headers: await getRequestHeaders(),
   });
 

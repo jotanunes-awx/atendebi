@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { DrilldownDrawer } from '@/components/drilldown-drawer';
 import { MetricCard } from '@/components/metric-card';
+import { PeriodSelect } from '@/components/period-select';
 import { RiskBadge } from '@/components/risk-badge';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
@@ -22,13 +23,14 @@ type QualityDrawer = {
 export default function QualidadePage() {
   const [drawer, setDrawer] = useState<QualityDrawer | null>(null);
   const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
+  const [period, setPeriod] = useState('30d');
   const qualityQuery = useQuery({
-    queryKey: ['quality-overview'],
-    queryFn: getQualityOverview,
+    queryKey: ['quality-overview', period],
+    queryFn: () => getQualityOverview(period),
   });
   const ticketsQuery = useQuery({
-    queryKey: ['quality-tickets'],
-    queryFn: () => getTickets({ pageSize: 200 }),
+    queryKey: ['quality-tickets', period],
+    queryFn: () => getTickets({ pageSize: 200, period }),
   });
 
   const apiTickets = ticketsQuery.data?.data ?? [];
@@ -56,13 +58,19 @@ export default function QualidadePage() {
     <DashboardShell>
       <section className="space-y-6">
         <div className="rounded-lg border border-border bg-card p-6 shadow-panel">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Auditoria e experiencia</p>
-          <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Qualidade</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Aqui o gestor deve sair da media e chegar no atendimento exato que gerou nota baixa, risco, insatisfacao ou nao solucao.
-          </p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Auditoria e experiencia</p>
+              <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Qualidade</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                Aqui o gestor deve sair da media e chegar no atendimento exato que gerou nota baixa, risco, insatisfacao ou nao solucao.
+              </p>
+            </div>
+            <PeriodSelect value={period} onChange={setPeriod} />
+          </div>
           <p className="mt-4 text-xs font-semibold text-primary">
             Fonte: {qualityQuery.isLoading || ticketsQuery.isLoading ? 'Carregando API' : qualityQuery.isError || ticketsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
+            {quality?.periodLabel ? ` · ${quality.periodLabel}` : ''}
           </p>
         </div>
 

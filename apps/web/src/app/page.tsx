@@ -37,6 +37,7 @@ import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { Button } from '@/components/ui/button';
 import { ticketColumns, getTicketSearchValue, formatDateTime, formatRatingLabel, hasTicketRating } from '@/components/ticket-columns';
 import { DashboardShell } from '@/components/dashboard-shell';
+import { OriginsSection, saoPauloHourLabel } from '@/components/origin-insights';
 import { getConversationMessages, getDashboardDrilldown, getDashboardOverview, getTickets } from '@/lib/api-client';
 import {
   dashboardViewLabels,
@@ -99,6 +100,9 @@ const emptyDashboardOverview: DashboardOverview = {
   ],
   hourlyTicketVolume: [],
   queueAttentionData: [],
+  providerSummaries: [],
+  teamsPhoneStats: { totalCalls: 0, answered: 0, missed: 0, missedRate: 0, totalMinutes: 0, averageMinutes: 0, hourly: [] },
+  glpiBacklog: [],
   qualitySummary: { averageRating: 0, totalRated: 0, lowRated: 0, unresolved: 0, reopened: 0, aiConfidence: 0 },
   qualitySignals: [],
   operationalRisks: [],
@@ -578,6 +582,36 @@ export default function Home() {
           ) : null}
         </div>
       </section>
+
+      <OriginsSection
+        summaries={dashboard.providerSummaries}
+        teams={dashboard.teamsPhoneStats}
+        glpiBacklog={dashboard.glpiBacklog}
+        chartsReady={chartsReady}
+        isDark={isDark}
+        activeProvider={provider}
+        onProviderClick={(providerValue) => {
+          setProvider((current) => (current === providerValue ? 'Todos' : (providerValue as ProviderScope)));
+        }}
+        onTeamsHourClick={(hour) => {
+          const rows = liveTickets.filter(
+            (ticket) => ticket.provider === 'TEAMS_PHONE' && saoPauloHourLabel(ticket.openedAt) === hour,
+          );
+          openDrawer(`Chamadas Teams ${hour}`, rows, [
+            { label: 'Origem', value: 'Teams Phone' },
+            { label: 'Hora', value: hour },
+          ]);
+        }}
+        onGlpiCategoryClick={(category) => {
+          const rows = liveTickets.filter(
+            (ticket) => ticket.provider === 'GLPI' && (ticket.category ?? ticket.group ?? 'Sem categoria') === category,
+          );
+          openDrawer(`GLPI · ${category}`, rows, [
+            { label: 'Origem', value: 'GLPI' },
+            { label: 'Categoria', value: category },
+          ]);
+        }}
+      />
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
         <section className="rounded-lg border border-border bg-card p-4 shadow-panel">

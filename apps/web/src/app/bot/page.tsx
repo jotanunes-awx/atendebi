@@ -7,6 +7,7 @@ import { DashboardShell } from '@/components/dashboard-shell';
 import { DataTable, type DataTableColumn } from '@/components/data-table';
 import { DrilldownDrawer } from '@/components/drilldown-drawer';
 import { MetricCard } from '@/components/metric-card';
+import { PeriodSelect } from '@/components/period-select';
 import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { getBotOverview, getTickets, type BotOverview } from '@/lib/api-client';
@@ -68,13 +69,14 @@ const authorBarStyles: Record<BotOverview['messageMix'][number]['authorType'], s
 export default function BotPage() {
   const [drawer, setDrawer] = useState<BotDrawer | null>(null);
   const [detail, setDetail] = useState<{ ticket: DemoTicket; contextLabel: string } | null>(null);
+  const [period, setPeriod] = useState('30d');
   const botQuery = useQuery({
-    queryKey: ['bot-overview'],
-    queryFn: getBotOverview,
+    queryKey: ['bot-overview', period],
+    queryFn: () => getBotOverview(period),
   });
   const ticketsQuery = useQuery({
-    queryKey: ['bot-tickets'],
-    queryFn: () => getTickets({ pageSize: 200 }),
+    queryKey: ['bot-tickets', period],
+    queryFn: () => getTickets({ pageSize: 200, period }),
   });
 
   const apiTickets = ticketsQuery.data?.data ?? [];
@@ -97,13 +99,19 @@ export default function BotPage() {
     <DashboardShell>
       <section className="space-y-6">
         <div className="rounded-lg border border-border bg-card p-6 shadow-panel">
-          <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Inteligencia do bot</p>
-          <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Bot</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Acompanhe onde o bot transferiu para humano, quais fluxos geraram abandono e quais perguntas precisam virar melhoria de automacao.
-          </p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-[0.18em] text-primary">Inteligencia do bot</p>
+              <h2 className="mt-3 text-2xl font-semibold text-card-foreground">Bot</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                Acompanhe onde o bot transferiu para humano, quais fluxos geraram abandono e quais perguntas precisam virar melhoria de automacao.
+              </p>
+            </div>
+            <PeriodSelect value={period} onChange={setPeriod} />
+          </div>
           <p className="mt-4 text-xs font-semibold text-primary">
             Fonte: {botQuery.isLoading || ticketsQuery.isLoading ? 'Carregando API' : botQuery.isError || ticketsQuery.isError ? 'API indisponivel' : 'Conectado a API real'}
+            {overview.periodLabel ? ` · ${overview.periodLabel}` : ''}
           </p>
         </div>
 
