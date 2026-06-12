@@ -2,6 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { MessageDirection, Prisma, TicketStatus } from '@prisma/client';
 import { Job } from 'bullmq';
+import { authorTypeLabel, classifyBlipAuthor } from '../common/data/message-author';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { EVENT_PROCESSING_QUEUE, RawEventProcessingJob } from './queue.constants';
 
@@ -188,6 +189,8 @@ export class EventProcessingProcessor extends WorkerHost {
       });
 
       if (normalized.content) {
+        const messageAuthorType = classifyBlipAuthor(normalized.direction, normalized.agentName);
+
         await this.prisma.message.upsert({
           where: {
             tenantId_externalId: {
@@ -203,14 +206,16 @@ export class EventProcessingProcessor extends WorkerHost {
             rawEventId: rawEvent.id,
             externalId: normalized.messageExternalId ?? buildExternalId('message', rawEvent.id),
             direction: normalized.direction,
+            authorType: messageAuthorType,
             senderName: inferSenderName(normalized, contact?.name),
             content: normalized.content,
             contentType: normalized.contentType,
             sentAt: normalized.sentAt,
             metadata: {
               source: 'BLIP',
+              provider: 'BLIP',
               eventType: normalized.eventType,
-              senderRole: inferSenderRole(normalized.direction),
+              senderRole: authorTypeLabel(messageAuthorType),
               agentName: normalized.agentName,
             },
           },
@@ -220,6 +225,7 @@ export class EventProcessingProcessor extends WorkerHost {
             agentId: agent?.id,
             rawEventId: rawEvent.id,
             direction: normalized.direction,
+            authorType: messageAuthorType,
             senderName: inferSenderName(normalized, contact?.name),
             content: normalized.content,
             contentType: normalized.contentType,
@@ -603,14 +609,6 @@ function inferSenderName(event: NormalizedBlipEvent, contactName?: string | null
   }
 
   return event.agentName ?? 'Atendente';
-}
-
-function inferSenderRole(direction: MessageDirection) {
-  if (direction === 'SYSTEM') {
-    return 'Sistema';
-  }
-
-  return direction === 'INBOUND' ? 'Cliente' : 'Atendente';
 }
 
 function inferSignal(event: NormalizedBlipEvent) {

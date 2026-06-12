@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { IntegrationProvider, MessageDirection, Prisma, RawEventStatus, TicketStatus } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
+import { authorFromDirection, authorTypeLabel, classifyBlipAuthor } from '../common/data/message-author';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
 import { INTEGRATION_SYNC_QUEUE, type IntegrationSyncJob } from '../queues/queue.constants';
@@ -1175,6 +1176,8 @@ export class IntegrationsService {
     await this.attachTag(tenantId, ticket.id, 'BLiP', '#0ea5e9');
     await this.attachTag(tenantId, ticket.id, channel, channel === 'WhatsApp' ? '#22c55e' : '#38bdf8');
 
+    const blipAuthorType = classifyBlipAuthor(direction, agentName);
+
     await this.prisma.message.upsert({
       where: {
         tenantId_externalId: {
@@ -1188,6 +1191,7 @@ export class IntegrationsService {
         agentId: agent?.id ?? null,
         rawEventId: rawEvent.id,
         direction,
+        authorType: blipAuthorType,
         senderName: truncate(inferBlipSenderName(direction, contact.name, agentName), 160),
         content,
         contentType: truncate(readFirstString(message, ['content.type', 'type', 'message.type']) ?? 'text/plain', 80),
@@ -1196,7 +1200,7 @@ export class IntegrationsService {
           source: 'BLIP',
           provider: 'BLIP',
           syncSource: source,
-          senderRole: direction === MessageDirection.INBOUND ? 'Cliente' : agentName ? 'Atendente' : direction === MessageDirection.OUTBOUND ? 'Bot' : 'Sistema',
+          senderRole: authorTypeLabel(blipAuthorType),
           agentIdentity: agentInfo?.identity,
           agentName,
         },
@@ -1209,6 +1213,7 @@ export class IntegrationsService {
         rawEventId: rawEvent.id,
         externalId: messageExternalId,
         direction,
+        authorType: blipAuthorType,
         senderName: truncate(inferBlipSenderName(direction, contact.name, agentName), 160),
         content,
         contentType: truncate(readFirstString(message, ['content.type', 'type', 'message.type']) ?? 'text/plain', 80),
@@ -1217,7 +1222,7 @@ export class IntegrationsService {
           source: 'BLIP',
           provider: 'BLIP',
           syncSource: source,
-          senderRole: direction === MessageDirection.INBOUND ? 'Cliente' : agentName ? 'Atendente' : direction === MessageDirection.OUTBOUND ? 'Bot' : 'Sistema',
+          senderRole: authorTypeLabel(blipAuthorType),
           agentIdentity: agentInfo?.identity,
           agentName,
         },
@@ -2031,6 +2036,7 @@ export class IntegrationsService {
         rawEventId: rawEvent.id,
         externalId: `${externalTicketId}-description`,
         direction: MessageDirection.INBOUND,
+        authorType: authorFromDirection(MessageDirection.INBOUND),
         senderName: contact.name,
         content,
         contentType: 'text/plain',
@@ -2420,6 +2426,7 @@ export class IntegrationsService {
         rawEventId: rawEvent.id,
         externalId: `${externalCallId}-summary`,
         direction,
+        authorType: authorFromDirection(direction),
         senderName: direction === MessageDirection.INBOUND ? counterpartyNumber : userDisplayName,
         content: teamsCallSummary({ sourceLabel, direction, callerNumber, calleeNumber, durationSeconds, callFailed }),
         contentType: 'application/teams-call-summary',

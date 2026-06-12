@@ -45,6 +45,13 @@ enum MessageDirection {
   SYSTEM
 }
 
+enum MessageAuthorType {
+  CUSTOMER
+  AGENT
+  BOT
+  SYSTEM
+}
+
 enum AiAnalysisStatus {
   PENDING
   PROCESSING
@@ -268,6 +275,7 @@ model Message {
   rawEventId  String?          @map("raw_event_id") @db.Uuid
   externalId  String?          @map("external_id") @db.VarChar(180)
   direction   MessageDirection
+  authorType  MessageAuthorType @default(SYSTEM) @map("author_type")
   senderName  String?          @map("sender_name") @db.VarChar(160)
   content     String?          @db.Text
   contentType String?          @map("content_type") @db.VarChar(80)
@@ -282,6 +290,7 @@ model Message {
 
   @@unique([tenantId, externalId])
   @@index([tenantId, sentAt])
+  @@index([tenantId, authorType])
   @@index([ticketId])
   @@index([contactId])
   @@index([agentId])
