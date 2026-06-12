@@ -11,6 +11,7 @@ import { TicketDetailDrawer } from '@/components/ticket-detail-drawer';
 import { ticketColumns, getTicketSearchValue } from '@/components/ticket-columns';
 import { getBotOverview, getTickets, type BotOverview } from '@/lib/api-client';
 import type { DemoTicket } from '@/lib/demo-data';
+import { cn } from '@/lib/utils';
 
 type FlowRow = BotOverview['flows'][number];
 
@@ -49,8 +50,19 @@ const emptyBotOverview: BotOverview = {
   humanRequests: 0,
   abandonedFlows: 0,
   misunderstoodQuestions: 0,
+  botContainmentRate: 0,
+  botHandledTickets: 0,
+  humanHandledTickets: 0,
+  messageMix: [],
   flows: [],
   failures: [],
+};
+
+const authorBarStyles: Record<BotOverview['messageMix'][number]['authorType'], string> = {
+  BOT: 'bg-primary',
+  AGENT: 'bg-info',
+  CUSTOMER: 'bg-success',
+  SYSTEM: 'bg-muted-foreground',
 };
 
 export default function BotPage() {
@@ -70,6 +82,7 @@ export default function BotPage() {
   const tickets = apiTickets as unknown as DemoTicket[];
   const overview = botQuery.data ?? emptyBotOverview;
   const failureRows = overview.failures.length > 0 ? (overview.failures as unknown as DemoTicket[]) : tickets.filter((ticket) => ticket.botFallback);
+  const totalMixMessages = overview.messageMix.reduce((sum, entry) => sum + entry.value, 0);
 
   function openBotSlice(title: string, rows: DemoTicket[], label: string) {
     setDrawer({
@@ -128,6 +141,55 @@ export default function BotPage() {
             onClick={() => openBotSlice('Perguntas nao entendidas', failureRows.filter((ticket) => hasAnyTag(ticket, ['boleto', 'entrega'])), 'Nao entendido')}
           />
         </div>
+
+        <section className="rounded-lg border border-border bg-card p-4 shadow-panel">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-card-foreground">Bot vs humano</h3>
+              <p className="text-sm text-muted-foreground">
+                Baseado no autor real de cada mensagem coletada, nao em estimativa.
+              </p>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <p className="text-2xl font-semibold text-card-foreground">{overview.botContainmentRate}%</p>
+                <p className="text-xs text-muted-foreground">Contidos so pelo bot</p>
+              </div>
+              <div className="text-right">
+                <p className="text-2xl font-semibold text-card-foreground">{overview.humanHandledTickets}</p>
+                <p className="text-xs text-muted-foreground">Atendidos por humano</p>
+              </div>
+            </div>
+          </div>
+          {totalMixMessages > 0 ? (
+            <div className="space-y-3">
+              {overview.messageMix.map((entry) => {
+                const share = Math.round((entry.value / totalMixMessages) * 100);
+
+                return (
+                  <div key={entry.authorType}>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span className="font-medium text-card-foreground">{entry.label}</span>
+                      <span className="text-muted-foreground">
+                        {entry.value.toLocaleString('pt-BR')} · {share}%
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted">
+                      <div
+                        className={cn('h-2 rounded-full', authorBarStyles[entry.authorType])}
+                        style={{ width: `${Math.max(share, entry.value > 0 ? 3 : 0)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="rounded-md border border-dashed border-border bg-secondary p-4 text-sm leading-6 text-muted-foreground">
+              Sincronize o BLiP para medir a divisao real entre mensagens de bot e de atendentes humanos.
+            </p>
+          )}
+        </section>
 
         <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
           <section className="rounded-lg border border-border bg-card p-4 shadow-panel">

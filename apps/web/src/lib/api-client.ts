@@ -191,6 +191,14 @@ export type BotOverview = {
   humanRequests: number;
   abandonedFlows: number;
   misunderstoodQuestions: number;
+  botContainmentRate: number;
+  botHandledTickets: number;
+  humanHandledTickets: number;
+  messageMix: Array<{
+    authorType: 'CUSTOMER' | 'AGENT' | 'BOT' | 'SYSTEM';
+    label: string;
+    value: number;
+  }>;
   flows: Array<{
     name: string;
     total: number;
