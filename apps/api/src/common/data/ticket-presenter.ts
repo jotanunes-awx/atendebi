@@ -80,6 +80,8 @@ export function presentTicket(ticket: TicketWithRelations) {
       'unresolved',
       readString(metadata, 'resolutionStatus', '').toLowerCase().includes('nao solucionado'),
     ),
+    reopened: readBoolean(riskFlags, 'reopened', readBoolean(metadata, 'reopened', false)),
+    aiAnalyzed: analysis?.status === 'COMPLETED',
   };
 }
 

@@ -36,6 +36,9 @@ export class DashboardService {
     const averageRating = average(ratedTickets.map((ticket) => ticket.rating));
     const averageFirstResponse = average(rows.map((ticket) => ticket.firstResponseMinutes).filter((value) => value > 0));
     const fallbackRate = total > 0 ? Math.round((botFallbacks.length / total) * 1000) / 10 : 0;
+    const reopenedCount = rows.filter((ticket) => ticket.reopened).length;
+    const aiAnalyzedCount = rows.filter((ticket) => ticket.aiAnalyzed).length;
+    const aiConfidence = total > 0 ? Math.round((aiAnalyzedCount / total) * 100) : 0;
 
     return {
       period: normalizedFilters.period ?? 'active',
@@ -93,8 +96,8 @@ export class DashboardService {
         totalRated: ratedTickets.length,
         lowRated: lowRated.length,
         unresolved: unresolved.length,
-        reopened: rows.filter((ticket) => ticket.tags.includes('Risco') && ticket.status !== 'CLOSED').length,
-        aiConfidence: total > 0 ? 86 : 0,
+        reopened: reopenedCount,
+        aiConfidence,
       },
       qualitySignals: [
         {
@@ -111,8 +114,8 @@ export class DashboardService {
         },
         {
           label: 'Reabertos',
-          value: String(rows.filter((ticket) => ticket.tags.includes('Risco') && ticket.status !== 'CLOSED').length),
-          detail: 'Voltaram em ate 48h',
+          value: String(reopenedCount),
+          detail: 'Marcados como reabertura',
           tone: 'neutral',
         },
       ],
@@ -279,7 +282,7 @@ function matchesGenericFilters(ticket: PresentedTicket, filters: Record<string, 
     (!filters.rating || ticket.rating === Number(filters.rating)) &&
     (!filters.sentiment || ticket.sentiment === filters.sentiment) &&
     (!filters.risk || ticket.risk === filters.risk) &&
-    (!filters.hour || `${String(new Date(ticket.openedAt).getUTCHours()).padStart(2, '0')}h` === filters.hour) &&
+    (!filters.hour || ticketHourLabel(ticket.openedAt) === filters.hour) &&
     (!search || haystack.includes(search)) &&
     matchesPeriod(ticket, filters.period)
   );
@@ -344,11 +347,25 @@ function periodLabel(period?: string) {
   return labels[period ?? 'active'] ?? 'Chamados ativos';
 }
 
+const saoPauloHourFormatter = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: 'America/Sao_Paulo',
+  hour: '2-digit',
+  hour12: false,
+});
+
+/** Hora de abertura no fuso de Sao Paulo, no formato 'HHh', para graficos e filtro por hora. */
+function ticketHourLabel(openedAt: string) {
+  const formatted = saoPauloHourFormatter.format(new Date(openedAt)).padStart(2, '0');
+  const hour = formatted === '24' ? '00' : formatted;
+
+  return `${hour}h`;
+}
+
 function buildHourlyVolume(rows: PresentedTicket[]) {
   const countByHour = new Map<string, number>();
 
   for (const ticket of rows) {
-    const hour = `${String(new Date(ticket.openedAt).getUTCHours()).padStart(2, '0')}h`;
+    const hour = ticketHourLabel(ticket.openedAt);
     countByHour.set(hour, (countByHour.get(hour) ?? 0) + 1);
   }
 
