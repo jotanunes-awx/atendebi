@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { MessageAuthorType } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
+import { matchesTicketPeriod, normalizePeriod, periodLabel, periodStartDate } from '../common/data/period-filter';
 import { presentTicket, ticketInclude } from '../common/data/ticket-presenter';
 import { authorTypeLabel } from '../common/data/message-author';
 
@@ -12,11 +13,14 @@ export class BotService {
     private readonly tenantContext: TenantContextService,
   ) {}
 
-  async overview(tenantHeader?: string) {
+  async overview(tenantHeader?: string, period?: string) {
     const tenantId = await this.tenantContext.resolveTenantId(tenantHeader);
+    const normalizedPeriod = normalizePeriod(period, '30d');
 
     if (!tenantId) {
       return {
+        period: normalizedPeriod,
+        periodLabel: periodLabel(normalizedPeriod),
         fallbackRate: 0,
         humanRequests: 0,
         abandonedFlows: 0,
@@ -30,20 +34,23 @@ export class BotService {
       };
     }
 
+    const since = periodStartDate(normalizedPeriod);
     const tickets = await this.prisma.ticket.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(since ? { openedAt: { gte: since } } : {}) },
       include: ticketInclude,
       orderBy: { openedAt: 'desc' },
     });
-    const rows = tickets.map(presentTicket);
+    const rows = tickets.map(presentTicket).filter((ticket) => matchesTicketPeriod(ticket, normalizedPeriod));
     const fallbackTickets = rows.filter((ticket) => ticket.botFallback);
     const misunderstood = rows.filter((ticket) => ticket.botFallback && ticket.tags.some((tag) => ['Boleto', 'Entrega'].includes(tag)));
     const abandoned = fallbackTickets.filter((ticket) => ticket.unresolved);
 
     const { messageMix, botContainmentRate, botHandledTickets, humanHandledTickets } =
-      await this.buildAuthorTypeMetrics(tenantId);
+      await this.buildAuthorTypeMetrics(tenantId, since);
 
     return {
+      period: normalizedPeriod,
+      periodLabel: periodLabel(normalizedPeriod),
       fallbackRate: rows.length > 0 ? Math.round((fallbackTickets.length / rows.length) * 1000) / 10 : 0,
       humanRequests: fallbackTickets.length,
       abandonedFlows: abandoned.length,
@@ -62,10 +69,11 @@ export class BotService {
    * por autor e taxa de contencao do bot (tickets resolvidos so pelo bot, sem
    * nenhuma mensagem de atendente humano).
    */
-  private async buildAuthorTypeMetrics(tenantId: string) {
+  private async buildAuthorTypeMetrics(tenantId: string, since: Date | null) {
+    const messageWhere = { tenantId, ...(since ? { sentAt: { gte: since } } : {}) };
     const grouped = await this.prisma.message.groupBy({
       by: ['authorType'],
-      where: { tenantId },
+      where: messageWhere,
       _count: { _all: true },
     });
 
@@ -79,12 +87,12 @@ export class BotService {
 
     const [botTickets, agentTickets] = await Promise.all([
       this.prisma.message.findMany({
-        where: { tenantId, authorType: MessageAuthorType.BOT, ticketId: { not: null } },
+        where: { ...messageWhere, authorType: MessageAuthorType.BOT, ticketId: { not: null } },
         select: { ticketId: true },
         distinct: ['ticketId'],
       }),
       this.prisma.message.findMany({
-        where: { tenantId, authorType: MessageAuthorType.AGENT, ticketId: { not: null } },
+        where: { ...messageWhere, authorType: MessageAuthorType.AGENT, ticketId: { not: null } },
         select: { ticketId: true },
         distinct: ['ticketId'],
       }),

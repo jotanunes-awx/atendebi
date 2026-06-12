@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, TicketStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
+import { matchesTicketPeriod, periodLabel } from '../common/data/period-filter';
 import { presentTicket, ticketInclude } from '../common/data/ticket-presenter';
 
 @Injectable()
@@ -39,6 +40,7 @@ export class DashboardService {
     const reopenedCount = rows.filter((ticket) => ticket.reopened).length;
     const aiAnalyzedCount = rows.filter((ticket) => ticket.aiAnalyzed).length;
     const aiConfidence = total > 0 ? Math.round((aiAnalyzedCount / total) * 100) : 0;
+    const providerInsights = buildProviderInsights(rows);
 
     return {
       period: normalizedFilters.period ?? 'active',
@@ -91,6 +93,9 @@ export class DashboardService {
       ],
       hourlyTicketVolume: buildHourlyVolume(rows),
       queueAttentionData: buildQueueAttention(rows),
+      providerSummaries: providerInsights.summaries,
+      teamsPhoneStats: providerInsights.teams,
+      glpiBacklog: providerInsights.glpiBacklog,
       qualitySummary: {
         averageRating,
         totalRated: ratedTickets.length,
@@ -180,6 +185,9 @@ export class DashboardService {
       ],
       hourlyTicketVolume: [],
       queueAttentionData: [],
+      providerSummaries: [],
+      teamsPhoneStats: emptyTeamsPhoneStats(),
+      glpiBacklog: [],
       qualitySummary: { averageRating: 0, totalRated: 0, lowRated: 0, unresolved: 0, reopened: 0, aiConfidence: 0 },
       qualitySignals: [],
       operationalRisks: [],
@@ -284,7 +292,7 @@ function matchesGenericFilters(ticket: PresentedTicket, filters: Record<string, 
     (!filters.risk || ticket.risk === filters.risk) &&
     (!filters.hour || ticketHourLabel(ticket.openedAt) === filters.hour) &&
     (!search || haystack.includes(search)) &&
-    matchesPeriod(ticket, filters.period)
+    matchesTicketPeriod(ticket, filters.period)
   );
 }
 
@@ -306,45 +314,6 @@ function withDefaultDashboardPeriod(filters: Record<string, string | undefined>)
     ...filters,
     period: filters.period || 'active',
   };
-}
-
-function matchesPeriod(ticket: PresentedTicket, period?: string) {
-  if (!period || period === 'all') {
-    return true;
-  }
-
-  if (period === 'active') {
-    return ticket.status === 'OPEN' || ticket.status === 'PENDING';
-  }
-
-  const daysByPeriod: Record<string, number> = {
-    '24h': 1,
-    '7d': 7,
-    '30d': 30,
-    '90d': 90,
-    '12m': 365,
-  };
-  const days = daysByPeriod[period];
-
-  if (!days) {
-    return true;
-  }
-
-  return new Date(ticket.openedAt).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
-}
-
-function periodLabel(period?: string) {
-  const labels: Record<string, string> = {
-    active: 'Chamados ativos',
-    '24h': 'Ultimas 24 horas',
-    '7d': 'Ultimos 7 dias',
-    '30d': 'Ultimos 30 dias',
-    '90d': 'Ultimos 90 dias',
-    '12m': 'Ultimos 12 meses',
-    all: 'Todo o historico salvo',
-  };
-
-  return labels[period ?? 'active'] ?? 'Chamados ativos';
 }
 
 const saoPauloHourFormatter = new Intl.DateTimeFormat('pt-BR', {
@@ -575,6 +544,113 @@ function average(values: number[]) {
 
 function percentage(value: number, total: number) {
   return total > 0 ? Math.round((value / total) * 100) : 0;
+}
+
+function countOpenTickets(rows: PresentedTicket[]) {
+  return rows.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING').length;
+}
+
+/** Recortes por origem para o dashboard: resumo por provedor, telefonia Teams e backlog GLPI. */
+function buildProviderInsights(rows: PresentedTicket[]) {
+  const blipRows = rows.filter((ticket) => ticket.provider === 'BLIP');
+  const glpiRows = rows.filter((ticket) => ticket.provider === 'GLPI');
+  const teamsRows = rows.filter((ticket) => ticket.provider === 'TEAMS_PHONE');
+  const teams = buildTeamsPhoneStats(teamsRows);
+  const glpiBacklog = buildGlpiBacklog(glpiRows);
+  const glpiOpen = countOpenTickets(glpiRows);
+  const blipOpen = countOpenTickets(blipRows);
+
+  const summaries = [
+    blipRows.length > 0
+      ? {
+          provider: 'BLIP',
+          label: 'BLiP',
+          total: blipRows.length,
+          open: blipOpen,
+          detail: `${blipOpen} conversas em andamento`,
+        }
+      : null,
+    glpiRows.length > 0
+      ? {
+          provider: 'GLPI',
+          label: 'GLPI',
+          total: glpiRows.length,
+          open: glpiOpen,
+          detail: `${glpiOpen} chamados em aberto`,
+        }
+      : null,
+    teamsRows.length > 0
+      ? {
+          provider: 'TEAMS_PHONE',
+          label: 'Teams Phone',
+          total: teamsRows.length,
+          open: countOpenTickets(teamsRows),
+          detail: `${teams.missed} chamadas perdidas`,
+        }
+      : null,
+  ].filter((summary): summary is NonNullable<typeof summary> => summary !== null);
+
+  return { summaries, teams, glpiBacklog };
+}
+
+function buildTeamsPhoneStats(rows: PresentedTicket[]) {
+  if (rows.length === 0) {
+    return emptyTeamsPhoneStats();
+  }
+
+  const missed = rows.filter((ticket) => ticket.unresolved).length;
+  const durations = rows.map((ticket) => ticket.callDurationMinutes).filter((value) => value > 0);
+  const hourlyMap = new Map<string, { atendidas: number; perdidas: number }>();
+
+  for (const ticket of rows) {
+    const hour = ticketHourLabel(ticket.openedAt);
+    const current = hourlyMap.get(hour) ?? { atendidas: 0, perdidas: 0 };
+
+    if (ticket.unresolved) {
+      current.perdidas += 1;
+    } else {
+      current.atendidas += 1;
+    }
+
+    hourlyMap.set(hour, current);
+  }
+
+  return {
+    totalCalls: rows.length,
+    answered: rows.length - missed,
+    missed,
+    missedRate: percentage(missed, rows.length),
+    totalMinutes: Math.round(durations.reduce((sum, value) => sum + value, 0)),
+    averageMinutes: average(durations),
+    hourly: Array.from(hourlyMap.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([hour, value]) => ({ hour, ...value })),
+  };
+}
+
+function emptyTeamsPhoneStats() {
+  return {
+    totalCalls: 0,
+    answered: 0,
+    missed: 0,
+    missedRate: 0,
+    totalMinutes: 0,
+    averageMinutes: 0,
+    hourly: [] as Array<{ hour: string; atendidas: number; perdidas: number }>,
+  };
+}
+
+function buildGlpiBacklog(rows: PresentedTicket[]) {
+  const byCategory = groupBy(rows, (ticket) => ticket.category || 'Sem categoria');
+
+  return Array.from(byCategory.entries())
+    .map(([category, tickets]) => ({
+      category,
+      total: tickets.length,
+      open: countOpenTickets(tickets),
+    }))
+    .sort((left, right) => right.open - left.open || right.total - left.total)
+    .slice(0, 8);
 }
 
 function groupBy<T>(items: T[], getKey: (item: T) => string) {

@@ -1,5 +1,5 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { MockAuthenticatedUser } from '../common/auth/mock-auth.guard';
 import { PERMISSION_GROUPS } from '../common/auth/app-roles';
 import { MockAuthGuard } from '../common/auth/mock-auth.guard';
@@ -21,7 +21,8 @@ export class SalesController {
 
   @Get('overview')
   @ApiOperation({ summary: 'Returns sales intelligence overview' })
-  overview(@Req() request: RequestWithUser) {
-    return this.salesService.overview(request.user?.tenantId);
+  @ApiQuery({ name: 'period', required: false, description: 'Periodo: 24h, 7d, 30d, 90d, 12m, all (padrao 30d)' })
+  overview(@Req() request: RequestWithUser, @Query('period') period?: string) {
+    return this.salesService.overview(request.user?.tenantId, period);
   }
 }

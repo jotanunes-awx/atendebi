@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
+import { matchesTicketPeriod, normalizePeriod, periodLabel, periodStartDate } from '../common/data/period-filter';
 import { presentTicket, ticketInclude } from '../common/data/ticket-presenter';
 
 @Injectable()
@@ -10,19 +11,21 @@ export class QualityService {
     private readonly tenantContext: TenantContextService,
   ) {}
 
-  async overview(tenantHeader?: string) {
+  async overview(tenantHeader?: string, period?: string) {
     const tenantId = await this.tenantContext.resolveTenantId(tenantHeader);
+    const normalizedPeriod = normalizePeriod(period, '30d');
 
     if (!tenantId) {
-      return emptyQualityOverview();
+      return emptyQualityOverview(normalizedPeriod);
     }
 
+    const since = periodStartDate(normalizedPeriod);
     const tickets = await this.prisma.ticket.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(since ? { openedAt: { gte: since } } : {}) },
       include: ticketInclude,
       orderBy: { openedAt: 'desc' },
     });
-    const rows = tickets.map(presentTicket);
+    const rows = tickets.map(presentTicket).filter((ticket) => matchesTicketPeriod(ticket, normalizedPeriod));
     const rated = rows.filter((ticket) => ticket.rating > 0);
     const lowRated = rows.filter((ticket) => ticket.rating > 0 && ticket.rating <= 2);
     const negative = rows.filter((ticket) => ticket.sentiment === 'negativo');
@@ -30,6 +33,8 @@ export class QualityService {
     const unresolved = rows.filter((ticket) => ticket.unresolved);
 
     return {
+      period: normalizedPeriod,
+      periodLabel: periodLabel(normalizedPeriod),
       averageRating: average(rated.map((ticket) => ticket.rating)),
       totalRated: rated.length,
       lowRated: lowRated.length,
@@ -54,7 +59,7 @@ export class QualityService {
           tickets: unresolved.length,
         },
       ],
-      tickets: [...lowRated, ...negative, ...highRisk].slice(0, 25),
+      tickets: dedupeById([...lowRated, ...negative, ...highRisk]).slice(0, 25),
     };
   }
 }
@@ -77,8 +82,23 @@ function buildReasons(rows: PresentedTicket[]) {
     .map(([label, count]) => ({ label, count }));
 }
 
-function emptyQualityOverview() {
+function dedupeById(rows: PresentedTicket[]) {
+  const seen = new Set<string>();
+
+  return rows.filter((ticket) => {
+    if (seen.has(ticket.internalId)) {
+      return false;
+    }
+
+    seen.add(ticket.internalId);
+    return true;
+  });
+}
+
+function emptyQualityOverview(period: string) {
   return {
+    period,
+    periodLabel: periodLabel(period),
     averageRating: 0,
     totalRated: 0,
     lowRated: 0,

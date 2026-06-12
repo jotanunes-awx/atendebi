@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContextService } from '../common/tenant/tenant-context.service';
+import { matchesTicketPeriod, normalizePeriod, periodLabel, periodStartDate } from '../common/data/period-filter';
 import { presentTicket, ticketInclude } from '../common/data/ticket-presenter';
 
 @Injectable()
@@ -10,11 +11,14 @@ export class SalesService {
     private readonly tenantContext: TenantContextService,
   ) {}
 
-  async overview(tenantHeader?: string) {
+  async overview(tenantHeader?: string, period?: string) {
     const tenantId = await this.tenantContext.resolveTenantId(tenantHeader);
+    const normalizedPeriod = normalizePeriod(period, '30d');
 
     if (!tenantId) {
       return {
+        period: normalizedPeriod,
+        periodLabel: periodLabel(normalizedPeriod),
         opportunities: 0,
         leads: 0,
         proposals: 0,
@@ -24,17 +28,20 @@ export class SalesService {
       };
     }
 
+    const since = periodStartDate(normalizedPeriod);
     const tickets = await this.prisma.ticket.findMany({
-      where: { tenantId },
+      where: { tenantId, ...(since ? { openedAt: { gte: since } } : {}) },
       include: ticketInclude,
       orderBy: { openedAt: 'desc' },
     });
-    const rows = tickets.map(presentTicket);
+    const rows = tickets.map(presentTicket).filter((ticket) => matchesTicketPeriod(ticket, normalizedPeriod));
     const opportunities = rows.filter((ticket) => ticket.isOpportunity);
     const proposals = opportunities.filter((ticket) => ticket.tags.includes('Proposta'));
     const lostByDelay = opportunities.filter((ticket) => ticket.firstResponseMinutes >= 8 || ticket.unresolved);
 
     return {
+      period: normalizedPeriod,
+      periodLabel: periodLabel(normalizedPeriod),
       opportunities: opportunities.length,
       leads: opportunities.filter((ticket) => ticket.status === 'OPEN' || ticket.status === 'PENDING').length,
       proposals: proposals.length,
